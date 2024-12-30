@@ -10,6 +10,7 @@ packages:
   - open-iscsi
   - nfs-common
   - policycoreutils
+  - network-manager
 
 write_files:
 
