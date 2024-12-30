@@ -1078,6 +1078,42 @@ Update `version` in your kube.tf and run `terraform apply`.
 
 **Help wanted!** Consider asking Hetzner to add MicroOS as a default image (not just ISO) at [get.opensuse.org/microos](https://get.opensuse.org/microos). More requests = faster deployments for everyone!
 
+## Ubuntu based nodes (experimental)
+
+It is also possible to use Ubuntu on the nodes as an alternative to MicroOS.
+
+In this case, it is sufficient to set the `os` property to `ubuntu` in the node pools. With the variable `ubuntu_image`, the version to be used is set.
+
+```hcl
+control_plane_nodepools = [
+  {
+    name        = "cp-fsn1",
+    os          = "ubuntu", # defaults to "microos"
+    server_type = "cx22",
+    location    = "fsn1",
+    count       = 3
+  }
+]
+
+agent_nodepools = [
+  {
+    name        = "wk-fsn1",
+    os          = "ubuntu", # defaults to "microos"
+    server_type = "cx22",
+    location    = "fsn1",
+    count       = 3
+  }
+]
+
+ubuntu_image = "ubuntu-24.04"
+```
+
+Please note the following restrictions:
+
+- unattended OS upgrades will always take place, with Kured coordinated reboots
+- no SELinux support (yet)
+- at present, this must be considered experimental and has not yet been thoroughly tested
+
 ### Development Workflow
 
 1. Fork the project
