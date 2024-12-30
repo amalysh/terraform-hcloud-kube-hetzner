@@ -277,6 +277,7 @@ variable "control_plane_nodepools" {
   description = "Number of control plane nodes."
   type = list(object({
     name                       = string
+    os                         = string
     server_type                = string
     location                   = string
     backups                    = optional(bool)
@@ -318,6 +319,7 @@ variable "agent_nodepools" {
   description = "Number of agent nodes."
   type = list(object({
     name                       = string
+    os                         = string
     server_type                = string
     location                   = string
     backups                    = optional(bool)
@@ -1567,7 +1569,6 @@ variable "keep_disk_cp" {
   description = "Whether to keep OS disks of nodes the same size when upgrading a control-plane node"
 }
 
-
 variable "sys_upgrade_controller_version" {
   type        = string
   default     = "v0.18.0"
@@ -1599,4 +1600,10 @@ variable "control_plane_endpoint" {
     condition     = var.control_plane_endpoint == null || can(regex("^https?://(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?|(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|\\[[0-9a-fA-F:]+\\])(?::[0-9]{1,5})?(?:/.*)?$", var.control_plane_endpoint))
     error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443)."
   }
+}
+
+variable "ubuntu_image" {
+  description = "Ubuntu image to be used."
+  type        = string
+  default     = "ubuntu-24.04"
 }

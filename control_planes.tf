@@ -8,14 +8,15 @@ module "control_planes" {
   for_each = local.control_plane_nodes
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}"
-  microos_snapshot_id              = substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
+  os                               = each.value.os
+  microos_snapshot_id              = each.value.os == "ubuntu" ? var.ubuntu_image : substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
   ssh_port                         = var.ssh_port
   ssh_public_key                   = var.ssh_public_key
   ssh_private_key                  = var.ssh_private_key
   ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
-  firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id]
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.control_plane[each.value.placement_group_compat_idx].id : hcloud_placement_group.control_plane_named[each.value.placement_group].id)
   location                         = each.value.location
   server_type                      = each.value.server_type
@@ -28,8 +29,8 @@ module "control_planes" {
   k3s_kubelet_config_update_script = local.k3s_kubelet_config_update_script
   k3s_audit_policy_config          = var.k3s_audit_policy_config
   k3s_audit_policy_update_script   = local.k3s_audit_policy_update_script
-  cloudinit_write_files_common     = local.cloudinit_write_files_common
-  cloudinit_runcmd_common          = local.cloudinit_runcmd_common
+  cloudinit_write_files_common     = each.value.os == "microos" ? local.cloudinit_write_files_common : local.ubuntu_cloudinit_write_files_common
+  cloudinit_runcmd_common          = each.value.os == "microos" ? local.cloudinit_runcmd_common : local.ubuntu_cloudinit_runcmd_common
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
   keep_disk_size                   = var.keep_disk_cp

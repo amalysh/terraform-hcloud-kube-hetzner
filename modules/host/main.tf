@@ -82,7 +82,7 @@ resource "hcloud_server" "server" {
   }
 
   provisioner "remote-exec" {
-    inline = var.automatically_upgrade_os ? [
+    inline = var.automatically_upgrade_os || var.os == "ubuntu" ? [
       <<-EOT
       echo "Automatic OS updates are enabled"
       EOT
@@ -229,7 +229,7 @@ data "cloudinit_config" "config" {
     filename     = "init.cfg"
     content_type = "text/cloud-config"
     content = templatefile(
-      "${path.module}/templates/cloudinit.yaml.tpl",
+      "${path.module}/templates/cloudinit.${var.os}.yaml.tpl",
       {
         hostname                     = local.name
         dns_servers                  = var.dns_servers
