@@ -47,4 +47,5 @@ ${cloudinit_runcmd_common}
 - echo -e 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}\n' >> /etc/multipath.conf
 - systemctl enable iscsid
 - ln -s -f bash /bin/sh
+- mkdir -p /var/lib/ca-certificates
 - echo "$(date) - Terraform deployment successfully finished" > /etc/node-ready
