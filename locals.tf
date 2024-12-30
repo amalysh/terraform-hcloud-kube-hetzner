@@ -108,7 +108,8 @@ locals {
     ]
   })
 
-  apply_k3s_selinux = ["/sbin/semodule -v -i /usr/share/selinux/packages/k3s.pp"]
+  # @fixme SELinux for Ubuntu
+  apply_k3s_selinux = ["if test -e /usr/share/selinux/packages/k3s.pp; then /sbin/semodule -v -i /usr/share/selinux/packages/k3s.pp; fi"]
   swap_node_label   = ["node.kubernetes.io/server-swap=enabled"]
 
   k3s_install_command = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
@@ -132,6 +133,7 @@ locals {
       for node_index in range(nodepool_obj.count) :
       format("%s-%s-%s", pool_index, node_index, nodepool_obj.name) => {
         nodepool_name : nodepool_obj.name,
+        os : nodepool_obj.os,
         server_type : nodepool_obj.server_type,
         location : nodepool_obj.location,
         labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
@@ -154,6 +156,7 @@ locals {
       for node_index in range(coalesce(nodepool_obj.count, 0)) :
       format("%s-%s-%s", pool_index, node_index, nodepool_obj.name) => {
         nodepool_name : nodepool_obj.name,
+        os : nodepool_obj.os,
         server_type : nodepool_obj.server_type,
         longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
         floating_ip : lookup(nodepool_obj, "floating_ip", false),
@@ -180,6 +183,7 @@ locals {
       format("%s-%s-%s", pool_index, node_key, nodepool_obj.name) => merge(
         {
           nodepool_name : nodepool_obj.name,
+          os : nodepool_obj.os,
           server_type : nodepool_obj.server_type,
           longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
           floating_ip : lookup(nodepool_obj, "floating_ip", false),

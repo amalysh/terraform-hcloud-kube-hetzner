@@ -50,3 +50,4 @@ ${cloudinit_runcmd_common}
   systemctl daemon-reload
   systemctl enable swapon-late.service
 %{endif~}
+- echo "$(date) - Terraform deployment successfully finished" > /etc/node-ready

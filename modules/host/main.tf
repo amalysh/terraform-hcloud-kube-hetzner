@@ -64,7 +64,7 @@ resource "hcloud_server" "server" {
   provisioner "local-exec" {
     command = <<-EOT
       timeout 600 bash <<EOF
-        until ssh ${local.ssh_args} -i /tmp/${random_string.identity_file.id} -o ConnectTimeout=2 -p ${var.ssh_port} root@${self.ipv4_address} true 2> /dev/null
+        until ssh ${local.ssh_args} -i /tmp/${random_string.identity_file.id} -o ConnectTimeout=2 -p ${var.ssh_port} root@${self.ipv4_address} test -e /etc/node-ready 2> /dev/null
         do
           echo "Waiting for MicroOS to become available..."
           sleep 3
@@ -82,7 +82,7 @@ resource "hcloud_server" "server" {
 
 
   provisioner "remote-exec" {
-    inline = var.automatically_upgrade_os ? [
+    inline = var.automatically_upgrade_os || var.os == "ubuntu" ? [
       <<-EOT
       echo "Automatic OS updates are enabled"
       EOT
@@ -144,7 +144,7 @@ data "cloudinit_config" "config" {
     filename     = "init.cfg"
     content_type = "text/cloud-config"
     content = templatefile(
-      "${path.module}/templates/cloudinit.yaml.tpl",
+      "${path.module}/templates/cloudinit.${var.os}.yaml.tpl",
       {
         hostname                     = local.name
         sshAuthorizedKeys            = concat([var.ssh_public_key], var.ssh_additional_public_keys)

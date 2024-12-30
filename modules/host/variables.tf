@@ -2,11 +2,19 @@ variable "name" {
   description = "Host name"
   type        = string
 }
+
+variable "os" {
+  description = "Operating System"
+  type        = string
+  default     = "microos"
+}
+
 variable "microos_snapshot_id" {
   description = "MicroOS snapshot ID to be used. Per default empty, an initial snapshot will be created"
   type        = string
   default     = ""
 }
+
 variable "base_domain" {
   description = "Base domain used for reverse dns"
   type        = string

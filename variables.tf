@@ -172,6 +172,7 @@ variable "control_plane_nodepools" {
   description = "Number of control plane nodes."
   type = list(object({
     name                       = string
+    os                         = string
     server_type                = string
     location                   = string
     backups                    = optional(bool)
@@ -202,6 +203,7 @@ variable "agent_nodepools" {
   description = "Number of agent nodes."
   type = list(object({
     name                       = string
+    os                         = string
     server_type                = string
     location                   = string
     backups                    = optional(bool)
@@ -1161,9 +1163,14 @@ variable "keep_disk_cp" {
   description = "Whether to keep OS disks of nodes the same size when upgrading a control-plane node"
 }
 
-
 variable "sys_upgrade_controller_version" {
   type        = string
   default     = "v0.14.2"
   description = "Version of the System Upgrade Controller for automated upgrades of k3s. See https://github.com/rancher/system-upgrade-controller/releases for the available versions."
+}
+
+variable "ubuntu_image" {
+  description = "Ubuntu image to be used."
+  type        = string
+  default     = "ubuntu-24.04"
 }
