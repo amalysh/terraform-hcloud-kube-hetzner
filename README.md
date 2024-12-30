@@ -1049,6 +1049,42 @@ When moving from 1.x to 2.x:
 
 <!-- CONTRIBUTING -->
 
+## Ubuntu based nodes (experimental)
+
+It is also possible to use Ubuntu on the nodes as an alternative to MicroOS.
+
+In this case, it is sufficient to set the `os` property to `ubuntu` in the node pools. With the variable `ubuntu_image`, the version to be used is set.
+
+```hcl
+control_plane_nodepools = [
+  {
+    name        = "cp-fsn1",
+    os          = "ubuntu", # defaults to "microos"
+    server_type = "cx22",
+    location    = "fsn1",
+    count       = 3
+  }
+]
+
+agent_nodepools = [
+  {
+    name        = "wk-fsn1",
+    os          = "ubuntu", # defaults to "microos"
+    server_type = "cx22",
+    location    = "fsn1",
+    count       = 3
+  }
+]
+
+ubuntu_image = "ubuntu-24.04"
+```
+
+Please note the following restrictions:
+
+- unattended OS upgrades will always take place, with Kured coordinated reboots
+- no SELinux support (yet)
+- at present, this must be considered experimental and has not yet been thoroughly tested
+
 ## Contributing
 
 🌱 This project currently installs openSUSE MicroOS via the Hetzner rescue mode, making things a few minutes slower. To help with that, you could **take a few minutes to send a support request to Hetzner, asking them to please add openSUSE MicroOS as a default image**, not just an ISO. The more requests they receive, the likelier they are to add support for it, and if they do, that will cut the deployment time by half. The official link to openSUSE MicroOS is <https://get.opensuse.org/microos>, and their `OpenStack Cloud` image has full support for Cloud-init, which would probably very much suit the Hetzner Ops team!
