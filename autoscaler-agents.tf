@@ -1,12 +1,13 @@
 locals {
   cluster_prefix = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+  first_nodepool_os = var.autoscaler_nodepools[0].os
   first_nodepool_snapshot_id = length(var.autoscaler_nodepools) == 0 ? "" : (
-    substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
+    local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
   )
 
   imageList = {
-    arm64 : tostring(data.hcloud_image.microos_arm_snapshot.id)
-    amd64 : tostring(data.hcloud_image.microos_x86_snapshot.id)
+    arm64 : local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : tostring(data.hcloud_image.microos_arm_snapshot.id)
+    amd64 : local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : tostring(data.hcloud_image.microos_x86_snapshot.id)
   }
 
   nodeConfigName = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
@@ -97,7 +98,7 @@ data "cloudinit_config" "autoscaler_config" {
     filename     = "init.cfg"
     content_type = "text/cloud-config"
     content = templatefile(
-      "${path.module}/templates/autoscaler-cloudinit.yaml.tpl",
+      var.autoscaler_nodepools[count.index].os == "ubuntu" ? "${path.module}/templates/autoscaler-cloudinit.ubuntu.yaml.tpl" : "${path.module}/templates/autoscaler-cloudinit.yaml.tpl",
       {
         hostname          = "autoscaler"
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
@@ -108,11 +109,11 @@ data "cloudinit_config" "autoscaler_config" {
           flannel-iface = local.flannel_iface
           node-label    = concat(local.default_agent_labels, [for k, v in var.autoscaler_nodepools[count.index].labels : "${k}=${v}"])
           node-taint    = concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${taint.value}:${taint.effect}"])
-          selinux       = true
+          selinux       = var.autoscaler_nodepools[count.index].selinux == true
         })
         install_k3s_agent_script     = join("\n", concat(local.install_k3s_agent, ["systemctl start k3s-agent"]))
-        cloudinit_write_files_common = local.cloudinit_write_files_common
-        cloudinit_runcmd_common      = local.cloudinit_runcmd_common
+        cloudinit_write_files_common = var.autoscaler_nodepools[count.index].os == "ubuntu" ? local.ubuntu_cloudinit_write_files_common : local.cloudinit_write_files_common
+        cloudinit_runcmd_common      = var.autoscaler_nodepools[count.index].os == "ubuntu" ? local.ubuntu_cloudinit_runcmd_common : local.cloudinit_runcmd_common
       }
     )
   }
