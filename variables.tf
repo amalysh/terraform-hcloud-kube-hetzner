@@ -513,6 +513,7 @@ variable "autoscaler_nodepools" {
   description = "Cluster autoscaler nodepools."
   type = list(object({
     name         = string
+    os           = string
     server_type  = string
     location     = string
     min_nodes    = number
@@ -526,6 +527,7 @@ variable "autoscaler_nodepools" {
     })), [])
     swap_size = optional(string, "")
     zram_size = optional(string, "")
+    selinux   = optional(bool, true)
   }))
   default = []
 }
