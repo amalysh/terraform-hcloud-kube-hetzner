@@ -82,14 +82,22 @@ resource "hcloud_server" "server" {
 
 
   provisioner "remote-exec" {
-    inline = var.automatically_upgrade_os || var.os == "ubuntu" ? [
+    inline = var.automatically_upgrade_os ? [
       <<-EOT
       echo "Automatic OS updates are enabled"
       EOT
       ] : [
       <<-EOT
       echo "Automatic OS updates are disabled"
-      systemctl --now disable transactional-update.timer
+      # check if ubuntu and disable unattended-upgrades
+      if [ -f /etc/apt/apt.conf.d/20auto-upgrades ]
+      then
+        # sed -i 's/1/0/' /etc/apt/apt.conf.d/20auto-upgrades
+        systemctl --now disable unattended-upgrades
+      else
+        # check if suse and disable transactional-update
+        systemctl --now disable transactional-update.timer
+      fi
       EOT
     ]
   }
