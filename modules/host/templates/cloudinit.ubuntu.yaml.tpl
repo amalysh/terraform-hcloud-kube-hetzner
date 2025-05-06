@@ -61,6 +61,32 @@ runcmd:
 
 ${cloudinit_runcmd_common}
 
+%{if swap_size != ""~}
+- |
+  mkdir -p /var/lib/swap
+  chmod 700 /var/lib/swap
+  truncate -s 0 /var/lib/swap/swapfile
+  chattr +C /var/lib/swap/swapfile
+  fallocate -l ${swap_size} /var/lib/swap/swapfile
+  chmod 600 /var/lib/swap/swapfile
+  mkswap /var/lib/swap/swapfile
+  swapon /var/lib/swap/swapfile
+  echo "/var/lib/swap/swapfile none swap defaults 0 0" | sudo tee -a /etc/fstab
+  cat << EOF >> /etc/systemd/system/swapon-late.service
+  [Unit]
+  Description=Activate all swap devices later
+  After=default.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/sbin/swapon -a
+
+  [Install]
+  WantedBy=default.target
+  EOF
+  systemctl daemon-reload
+  systemctl enable swapon-late.service
+%{endif~}
 
   # - sed -i 's/[#]*PermitRootLogin yes/PermitRootLogin prohibit-password/g' /etc/ssh/sshd_config
   # - sed -i 's/[#]*PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
