@@ -96,7 +96,7 @@ ${cloudinit_runcmd_common}
   # - rm /etc/resolv.conf
   # - echo "nameserver 1.1.1.1" > /etc/resolv.conf
   # - echo "nameserver 1.0.0.1" >> /etc/resolv.conf
-- echo -e 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}\n' >> /etc/multipath.conf
+- echo 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}\n' >> /etc/multipath.conf
 - systemctl enable iscsid
 - ln -s -f bash /bin/sh
 - mkdir -p /var/lib/ca-certificates
