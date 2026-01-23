@@ -75,14 +75,20 @@ locals {
   path: /etc/rancher/k3s/registries.yaml
 %{endif}
 
-# Apply new DNS config
-%{if length(var.dns_servers) > 0}
-# Set prepare for manual dns config
+# Configure NetworkManager DNS handling
+# dns=none: manual resolv.conf management (when dns_servers defined)
+# dns=default + rc-manager=file: NetworkManager writes DHCP DNS directly to /etc/resolv.conf
 - content: |
     [main]
+%{if length(var.dns_servers) > 0~}
     dns=none
+%{else~}
+    dns=default
+    rc-manager=file
+%{endif~}
   path: /etc/NetworkManager/conf.d/dns.conf
 
+%{if length(var.dns_servers) > 0}
 - content: |
     %{for server in var.dns_servers~}
     nameserver ${server}
@@ -97,6 +103,10 @@ EOT
 - [systemctl, disable, '--now', 'snapd snapd.seeded snapd.socket']
 - [systemctl, disable, '--now', 'apport']
 - [systemctl, disable, '--now', 'ufw']
+
+# DNS will be managed by NetworkManager (via DHCP) or write_files (when dns_servers is defined).
+- [systemctl, disable, '--now', 'systemd-resolved']
+- [rm, '-f', '/etc/resolv.conf']
 
 # Bounds the amount of logs that can survive on the system
 - [sed, '-i', 's/#SystemMaxUse=/SystemMaxUse=3G/g', /etc/systemd/journald.conf]
