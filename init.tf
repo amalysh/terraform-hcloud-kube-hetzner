@@ -140,6 +140,7 @@ resource "null_resource" "kustomization" {
       coalesce(var.nginx_version, "N/A"),
       coalesce(var.haproxy_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
+      coalesce(var.cert_manager_version, "N/A"),
     ])
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
