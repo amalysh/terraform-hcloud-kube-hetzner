@@ -86,3 +86,10 @@ ${cloudinit_runcmd_common}
 
 # Start the install-k3s-agent service
 - ['/bin/bash', '/var/pre_install/install-k3s-agent.sh']
+
+# Reboot if kernel was updated to ensure new kernel is loaded
+power_state:
+  delay: "+1"
+  mode: reboot
+  message: "Rebooting after cloud-init to load updated kernel"
+  condition: test -f /var/run/reboot-required

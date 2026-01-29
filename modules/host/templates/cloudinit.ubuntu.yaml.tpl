@@ -101,3 +101,10 @@ ${cloudinit_runcmd_common}
 - ln -s -f bash /bin/sh
 - mkdir -p /var/lib/ca-certificates
 - echo "$(date) - Terraform deployment successfully finished" > /etc/node-ready
+
+# Reboot if kernel was updated to ensure new kernel is loaded
+power_state:
+  delay: "+1"
+  mode: reboot
+  message: "Rebooting after cloud-init to load updated kernel"
+  condition: test -f /var/run/reboot-required
