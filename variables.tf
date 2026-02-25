@@ -1604,6 +1604,34 @@ variable "control_plane_endpoint" {
   }
 }
 
+variable "system_upgrade_window_options" {
+  type = object({
+    days     = string
+    start    = string
+    end      = string
+    timezone = string
+  })
+  default = {
+    days     = ""
+    start    = ""
+    end      = ""
+    timezone = ""
+  }
+  
+  validation {
+    condition = (
+      # Either all empty or all filled
+      (var.system_upgrade_window_options.days == "" && 
+       var.system_upgrade_window_options.start == "" && 
+       var.system_upgrade_window_options.end == "") ||
+      (var.system_upgrade_window_options.days != "" && 
+       var.system_upgrade_window_options.start != "" && 
+       var.system_upgrade_window_options.end != "")
+    )
+    error_message = "Window options must either be all empty or have days, start, and end defined."
+  }
+}
+
 variable "ubuntu_image" {
   description = "Ubuntu image to be used."
   type        = string
