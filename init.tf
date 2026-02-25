@@ -145,6 +145,8 @@ resource "null_resource" "kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
+    # redeploy when system upgrade window config changes
+    system_upgrade_window = jsonencode(var.system_upgrade_window_options)
   }
 
   connection {
@@ -240,6 +242,11 @@ resource "null_resource" "kustomization" {
         version          = var.install_k3s_version
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
+        window           = length(var.system_upgrade_window_options) > 0
+        window_days      = [for day in split(",", try(var.system_upgrade_window_options.days, "")) : lower(trimspace(day))]
+        window_start     = try(var.system_upgrade_window_options.start, "")
+        window_end       = try(var.system_upgrade_window_options.end, "")
+        window_timezone  = try(var.system_upgrade_window_options.timezone, "")
     })
     destination = "/var/post_install/plans.yaml"
   }

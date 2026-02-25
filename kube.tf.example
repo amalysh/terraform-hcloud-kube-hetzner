@@ -589,6 +589,18 @@ module "kube-hetzner" {
   # NOTE: This flag takes effect only when system_upgrade_use_drain is set to true.
   # system_upgrade_enable_eviction = false
 
+  # You can define a window when system-upgrade-manager allows to perform system upgrades.
+  # see https://docs.k3s.io/upgrades/automated#scheduling-upgrades
+  # Example:
+  # system_upgrade_window_options = {
+  #   days     = "monday,tuesday,wednesday,thursday,friday"
+  #   start    = "05:00"
+  #   end      = "13:00"
+  #   timezone = "UTC"
+  # }
+  # Default:
+  # system_upgrade_window_options = {}
+
   # The default is "true" (in HA setup it works wonderfully well, with automatic roll-back to the previous snapshot in case of an issue).
   # IMPORTANT! For non-HA clusters i.e. when the number of control-plane nodes is < 3, you have to turn it off.
   # automatically_upgrade_os = false

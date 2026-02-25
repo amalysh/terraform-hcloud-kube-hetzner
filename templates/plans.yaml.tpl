@@ -35,6 +35,22 @@ spec:
   %{ if !drain }cordon: true%{ endif }
   upgrade:
     image: rancher/k3s-upgrade
+%{ if window }
+  window:
+    days:
+    %{~ for day in window_days ~}
+      - ${day}
+    %{~ endfor ~}
+  %{~ if window_start != "" ~}
+    startTime: ${window_start}
+  %{~ endif ~}
+  %{~ if window_end != "" ~}
+    endTime: ${window_end}
+  %{~ endif ~}
+  %{~ if window_timezone != "" ~}
+    timeZone: ${window_timezone}
+  %{~ endif ~}
+%{ endif }
 ---
 # server plan
 apiVersion: upgrade.cattle.io/v1
@@ -64,3 +80,19 @@ spec:
   cordon: true
   upgrade:
     image: rancher/k3s-upgrade
+%{ if window }
+  window:
+    days:
+    %{~ for day in window_days ~}
+      - ${day}
+    %{~ endfor ~}
+  %{~ if window_start != "" ~}
+    startTime: ${window_start}
+  %{~ endif ~}
+  %{~ if window_end != "" ~}
+    endTime: ${window_end}
+  %{~ endif ~}
+  %{~ if window_timezone != "" ~}
+    timeZone: ${window_timezone}
+  %{~ endif ~}
+%{ endif }

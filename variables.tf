@@ -1167,8 +1167,36 @@ variable "keep_disk_cp" {
 
 variable "sys_upgrade_controller_version" {
   type        = string
-  default     = "v0.14.2"
+  default     = "v0.15.3"
   description = "Version of the System Upgrade Controller for automated upgrades of k3s. See https://github.com/rancher/system-upgrade-controller/releases for the available versions."
+}
+
+variable "system_upgrade_window_options" {
+  type = object({
+    days     = string
+    start    = string
+    end      = string
+    timezone = string
+  })
+  default = {
+    days     = ""
+    start    = ""
+    end      = ""
+    timezone = ""
+  }
+  
+  validation {
+    condition = (
+      # Either all empty or all filled
+      (var.system_upgrade_window_options.days == "" && 
+       var.system_upgrade_window_options.start == "" && 
+       var.system_upgrade_window_options.end == "") ||
+      (var.system_upgrade_window_options.days != "" && 
+       var.system_upgrade_window_options.start != "" && 
+       var.system_upgrade_window_options.end != "")
+    )
+    error_message = "Window options must either be all empty or have days, start, and end defined."
+  }
 }
 
 variable "ubuntu_image" {
