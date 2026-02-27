@@ -1,0 +1,475 @@
+locals {
+  # You have the choice of setting your Proxmox API token here or define the TF_VAR_proxmox_api_token env
+  # within your shell, such as: export TF_VAR_proxmox_api_token='user@pve!mytoken=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+  # If you choose to define it in the shell, this can be left as is.
+
+  # Your Proxmox API token can be created in Datacenter > Permissions > API Tokens.
+  # The token must have sufficient privileges (VM.Allocate, VM.Clone, VM.Config.*, VM.Audit, VM.PowerMgmt,
+  # Datastore.AllocateSpace, Datastore.Audit, SDN.Use, SDN.Allocate, Sys.Audit, Sys.Modify).
+  # Format: user@realm!token-name=secret-value
+  proxmox_api_token = "root@pam!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+
+module "kube-proxmox" {
+  # * source can be specified as a local path during development:
+  source = "../proxmox"
+  # Or from the terraform registry once published:
+  # source  = "kube-hetzner/kube-proxmox/proxmox"
+  # version = "1.0.0"
+
+  # Then fill or edit the below values. Only the values starting with a * are obligatory; the rest can remain
+  # with their default values, or you could adapt them to your needs.
+
+  # * Your Proxmox API token (format: user@realm!token-name=secret-value)
+  proxmox_api_token = var.proxmox_api_token != "" ? var.proxmox_api_token : local.proxmox_api_token
+
+
+  ## -- SSH Configuration -- ##
+
+  # * Your ssh public key
+  ssh_public_key = file("~/.ssh/id_ed25519.pub")
+  # * Your private key must be "ssh_private_key = null" when you want to use ssh-agent for a Yubikey-like
+  # device authentication or an SSH key-pair with a passphrase.
+  ssh_private_key = file("~/.ssh/id_ed25519")
+
+  # Customize the SSH port (default: 22)
+  # ssh_port = 2222
+
+  # If you use SSH agent and have issues connecting, you can increase auth tries (default: 6)
+  # ssh_max_auth_tries = 10
+
+
+  ## -- Cluster -- ##
+
+  # The cluster name is used for resource naming and labels. Must be lowercase alphanumeric with hyphens.
+  # Note: SDN zone IDs in Proxmox are limited to 8 characters, so the cluster name is truncated for SDN resources.
+  # cluster_name = "k3s"
+
+
+  ## -- SDN Networking -- ##
+  # Proxmox SDN provides isolated virtual networking comparable to Hetzner Cloud's managed VPC.
+  # A zone, VNet, and subnet are created automatically for your cluster.
+
+  # SDN zone type determines how the virtual network operates across Proxmox nodes:
+  #   "vxlan"  - L2 overlay across nodes (recommended for multi-node PVE clusters)
+  #   "evpn"   - VXLAN + BGP routing for L3 (best for multi-site with exit nodes)
+  #   "vlan"   - Traditional VLANs (simplest for single-switch setups)
+  #   "simple" - Isolated bridge per node, no cross-node L2 (single-node PVE only)
+  # sdn_zone_type = "vxlan"
+
+  # For vxlan/evpn zones, you MUST provide the IPs of all Proxmox nodes for peer communication.
+  # These are the management IPs of your PVE nodes (visible in Datacenter > Nodes).
+  # Example for a 3-node PVE cluster:
+  # sdn_zone_peers = ["192.168.1.10", "192.168.1.11", "192.168.1.12"]
+
+  # For vlan zones, specify the VLAN tag and physical bridge:
+  # sdn_vlan_tag = 100
+  # sdn_bridge   = "vmbr0"
+
+  # IPv4 CIDR for the k8s node network (SDN subnet). Nodes get private IPs from this range.
+  # network_ipv4_cidr = "10.0.0.0/16"
+
+  # Gateway IP for the SDN subnet. Must be within network_ipv4_cidr.
+  # network_gateway = "10.0.0.1"
+
+  # Enable SNAT on the SDN subnet for outbound internet access (default: true).
+  # Disable this if your network already has a NAT gateway or if nodes have direct internet access.
+  # enable_sdn_snat = true
+
+  # Kubernetes internal CIDRs. Never change these after cluster initialization!
+  # cluster_ipv4_cidr = "10.42.0.0/16"
+  # service_ipv4_cidr = "10.43.0.0/16"
+
+
+  ## -- Proxmox Nodes -- ##
+  # Define your Proxmox VE node names once here. All nodepools will distribute VMs
+  # across these nodes in round-robin fashion (this is the Proxmox equivalent of Hetzner placement groups).
+  # Individual nodepools can override this with their own node_name list if needed.
+  #
+  # Example: with 3 PVE nodes and count = 5, VMs are placed: pve1, pve2, pve3, pve1, pve2
+  # For a single-node Proxmox setup, use: proxmox_nodes = ["pve"]
+  proxmox_nodes = ["pve1", "pve2", "pve3"] # *
+
+
+  ## -- HA Groups (PVE 8.x only) -- ##
+  # When enabled, creates Proxmox HA groups and assigns VMs for automatic failover.
+  # If a Proxmox node goes down, the HA manager will migrate VMs to healthy nodes in the group.
+  #
+  # NOTE: On PVE 9.x, HA groups were replaced by "affinity rules".
+  # The bpg/proxmox provider does not yet support affinity rules.
+  # See https://github.com/bpg/terraform-provider-proxmox/issues/2097
+  # enable_ha_groups = true
+
+
+  ## -- VM Configuration -- ##
+
+  # By default, the module automatically downloads a cloud image and creates a VM template.
+  # No manual setup needed!
+  #
+  # What automatic template creation does:
+  #   1. Downloads the cloud image for your chosen OS (Ubuntu 24.04 or MicroOS)
+  #   2. Creates a VM template on the first Proxmox node (cross-node cloning handles the rest)
+  #   3. Adds udev rules to rename network interfaces to eth0/eth1
+  #   4. Configures qemu-guest-agent, virtio-scsi, and serial console
+  #
+  # Custom cloud image URL (default: based on vm_os):
+  # cloud_image_url = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+  #
+  # Storage for downloading cloud images (must support "iso" content type).
+  # Note: local-lvm does NOT support iso — use "local" or a NFS/Ceph storage.
+  # image_datastore = "local"
+
+  # Proxmox storage for VM disks (root disk). Supports local-lvm, ceph-pool, zfs-pool, etc.
+  # vm_datastore = "local-lvm"
+
+  # To use a manually created template instead, set:
+  #   create_vm_template = false
+  #   vm_template_id     = 9000
+  #
+  # Manual template creation from the Proxmox shell:
+  #   1. Download the cloud image:
+  #      wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+  #   2. Create a VM:
+  #      qm create 9000 --memory 2048 --cores 2 --name ubuntu-cloud --net0 virtio,bridge=vmbr0
+  #   3. Import the disk:
+  #      qm importdisk 9000 noble-server-cloudimg-amd64.img local-lvm
+  #   4. Attach the disk:
+  #      qm set 9000 --scsihw virtio-scsi-pci --scsi0 local-lvm:vm-9000-disk-0
+  #   5. Set boot and cloud-init:
+  #      qm set 9000 --boot c --bootdisk scsi0 --ide2 local-lvm:cloudinit
+  #   6. Enable guest agent:
+  #      qm set 9000 --agent enabled=1
+  #   7. Convert to template:
+  #      qm template 9000
+
+  # Proxmox storage for cloud-init snippets. Must have "snippets" content type enabled.
+  # To enable: Datacenter > Storage > Edit your storage > Content > check "Snippets"
+  # snippet_datastore = "local"
+
+  # Default VM OS. Must match the OS of your VM template. Currently supported: ubuntu, microos
+  # vm_os = "ubuntu"
+
+
+  ## -- Control Plane Nodepools -- ##
+  # For HA, at least three control plane nodes are recommended.
+  # **It must always be an ODD number, never even!** Search the internet for "split-brain problem with etcd"
+  # or see https://rancher.com/docs/k3s/latest/en/installation/ha-embedded/
+  # One is ok (non-HA), two is not ok, and three is ok (becomes HA).
+  #
+  # VMs are distributed across proxmox_nodes in round-robin (defined above).
+  # To place a specific pool on different nodes, set node_name to override.
+  #
+  # Please note that changing labels and taints after the first run will have no effect.
+  # If needed, you can do that through Kubernetes directly.
+
+  # * Example below:
+
+  control_plane_nodepools = [
+    {
+      name  = "control-plane"
+      count = 3 # Uses proxmox_nodes for round-robin placement
+      # node_name = ["pve1"]  # Override: pin this pool to specific nodes
+      # cores     = 2         # CPU cores per VM (default: 2)
+      # sockets   = 1         # CPU sockets per VM (default: 1)
+      # memory    = 4096      # Memory in MB per VM (default: 4096)
+      # disk_size = 40        # Disk size in GB per VM (default: 40)
+      # labels    = []
+      # taints    = []
+      # kubelet_args = []
+    }
+  ]
+
+
+  ## -- Agent Nodepools -- ##
+  # Agent nodes run your workloads. You can define multiple pools with different configurations.
+  # VMs are distributed across proxmox_nodes by default (round-robin).
+  # Set node_name per pool to override placement for specific pools.
+  #
+  # Before decreasing the count of any nodepool to 0, drain and cordon the nodes first.
+  # Otherwise, it will leave your cluster in a bad state.
+  #
+  # You can safely add or remove nodepools at the end of the list.
+  # The nodepool names must be unique, all lowercase, no special characters or underscore (dashes are allowed).
+
+  agent_nodepools = [
+    {
+      name  = "agent-general"
+      count = 3 # Uses proxmox_nodes for round-robin placement
+      # cores     = 4
+      # sockets   = 1
+      # memory    = 8192
+      # disk_size = 80
+      # labels    = []
+      # taints    = []
+      # kubelet_args = []
+    },
+    {
+      name      = "agent-storage"
+      node_name = ["pve1", "pve2"] # Override: only these nodes have fast storage
+      count     = 2
+      # cores               = 2
+      # memory              = 4096
+      # disk_size           = 200
+      # data_disk_size      = 100         # Optional additional data disk in GB (default: 0 = none)
+      # data_disk_datastore = "local-lvm" # Storage for data disk (default: same as vm_datastore)
+      # labels    = ["node.kubernetes.io/server-usage=storage"]
+      # taints    = []
+    }
+  ]
+
+
+  ## -- Load Balancing -- ##
+
+  # * Virtual IP for kube-vip (control plane HA). This replaces Hetzner's managed load balancer for the API server.
+  # Must be a free IP address in the same network as your nodes. kube-vip manages this as a floating VIP
+  # across control plane nodes using ARP/NDP leader election.
+  # The k3s API server (port 6443) is reachable at this address.
+  control_plane_vip = "10.0.0.100"
+
+  # kube-vip version (see https://github.com/kube-vip/kube-vip/releases)
+  # kube_vip_version = "v0.8.7"
+
+  # MetalLB provides LoadBalancer service support (replaces Hetzner's managed load balancer for ingress).
+  # When enabled, ingress controllers and other LoadBalancer services get external IPs from the address pool.
+  # metallb_enabled = true
+
+  # IP range for MetalLB address pool. Can be a CIDR (e.g., 10.0.10.0/28 = 14 usable IPs)
+  # or an explicit range (e.g., 10.0.10.10-10.0.10.20).
+  # These IPs must be free and routable from your network.
+  # metallb_address_pool = "10.0.10.0/28"
+
+  # MetalLB Helm chart version (see https://metallb.universe.tf/)
+  # metallb_version = "0.14.9"
+
+
+  ## -- Kubernetes Configuration -- ##
+
+  # k3s channel or version. Channel gets the latest patch for that minor version.
+  # See https://update.k3s.io/v1-release/channels for available channels.
+  # initial_k3s_channel = "v1.30"
+
+  # Pin to a specific k3s version (overrides channel). Leave empty to use channel.
+  # install_k3s_version = ""
+
+  # Additional k3s server/agent command-line arguments
+  # k3s_exec_server_args = ""
+  # k3s_exec_agent_args  = ""
+
+  # Pre-defined k3s token for cluster recovery or multi-cluster setups. Set to null for auto-generation.
+  # k3s_token = null
+
+
+  ## -- CNI (Container Network Interface) -- ##
+
+  # Choose your CNI plugin: "flannel" (default, simplest), "calico", or "cilium" (most features).
+  # cni_plugin = "flannel"
+
+  # Disable k3s built-in network policy controller (only relevant for flannel; calico and cilium manage their own)
+  # disable_network_policy = false
+
+  # Enable encrypted WireGuard tunnels for CNI traffic. Works with all supported CNIs.
+  # Note: if using Cilium with cilium_values, the responsibility of enabling WireGuard falls on you.
+  # enable_wireguard = false
+
+
+  ## -- Ingress Controller -- ##
+
+  # Choose your ingress controller: "traefik" (default), "nginx", "haproxy", or "none".
+  # With MetalLB enabled, the ingress controller's LoadBalancer service will get an IP from the MetalLB pool.
+  # ingress_controller = "traefik"
+
+
+  ## -- Proxmox Cloud Controller Manager & CSI Driver -- ##
+  # These are enabled by default and integrate k3s with your Proxmox infrastructure.
+  #
+  # CCM (sergelogvinov/proxmox-cloud-controller-manager):
+  #   - Initializes nodes with Proxmox-specific metadata
+  #   - Adds topology labels (region/zone based on PVE node names)
+  #   - Manages node lifecycle (removes nodes when VMs are deleted)
+  #
+  # CSI (sergelogvinov/proxmox-csi-plugin):
+  #   - Provisions persistent volumes from Proxmox storage backends
+  #   - Supports LVM, LVM-thin, ZFS, Ceph, and NFS
+  #   - Supports volume snapshots, expansion, and encryption
+
+  # enable_proxmox_ccm = true
+  # proxmox_ccm_version = "0.2.25"  # https://github.com/sergelogvinov/proxmox-cloud-controller-manager/releases
+
+  # enable_proxmox_csi = true
+  # proxmox_csi_version = "0.5.5"   # https://github.com/sergelogvinov/proxmox-csi-plugin/releases
+
+  # List of Proxmox storage backends available for CSI provisioning.
+  # Must match storage names configured in your Proxmox datacenter (Datacenter > Storage).
+  # Example with multiple backends: ["local-lvm", "ceph-pool", "nfs-storage"]
+  # csi_storage_backends = ["local-lvm"]
+
+
+  ## -- Add-ons -- ##
+
+  # Cert-manager for automatic TLS certificate management (Let's Encrypt, etc.)
+  # enable_cert_manager = true
+  # cert_manager_version = ""  # Leave empty for latest
+
+  # Longhorn distributed storage (see https://longhorn.io/)
+  # Requires dedicated storage nodes or sufficient disk space on agent nodes.
+  # enable_longhorn = false
+
+  # Rancher management UI (see https://rancher.com/)
+  # enable_rancher = false
+
+  # Automatic k3s version upgrades via system-upgrade-controller
+  # When enabled, k3s will be automatically upgraded to the latest patch version in the configured channel.
+  # automatically_upgrade_k3s = true
+
+  # Automatic OS upgrades (kernel, packages) with automatic reboots managed by kured
+  # automatically_upgrade_os = true
+
+  # Allow scheduling regular workloads on control plane nodes (not recommended for production)
+  # allow_scheduling_on_control_plane = false
+
+  # System upgrade controller version (manages k3s and OS upgrades)
+  # sys_upgrade_controller_version = "v0.14.2"
+
+  # Kured version for automatic node reboots after OS updates (null = auto-fetch latest from GitHub)
+  # See https://github.com/kubereboot/kured/releases
+  # kured_version = null
+
+
+  ## -- Network Interface -- ##
+  # With automatic template creation (default), interfaces are renamed via udev rules:
+  #   eth0 = management/public (vmbr0, 1st NIC)
+  #   eth1 = SDN private network (2nd NIC)
+  # flannel_iface and private_network_iface default to "eth1" automatically.
+  #
+  # With manual template (create_vm_template = false), Proxmox uses predictable names:
+  #   ens18 = 1st NIC (vmbr0, PCI 0000:00:12.0)
+  #   ens19 = 2nd NIC (SDN VNet, PCI 0000:00:13.0)
+  # flannel_iface and private_network_iface default to "ens19".
+  # Adjust if your template uses different naming (e.g., eth0/eth1).
+
+  # flannel_iface = "ens19"
+  # private_network_iface = "ens19"
+
+
+  ## -- Miscellaneous -- ##
+
+  # Custom DNS servers for nodes (empty list = use system defaults)
+  # dns_servers = []
+
+  # Create a local kubeconfig file after cluster bootstrap
+  # create_kubeconfig = true
+
+  # Override the server address in kubeconfig (default: control_plane_vip)
+  # Useful if you access the cluster through a different IP or hostname.
+  # kubeconfig_server_address = ""
+
+  # Commands to execute on all nodes before k3s installation (e.g., install packages, configure system)
+  # preinstall_exec = []
+
+  # Commands to execute on all nodes after k3s installation
+  # postinstall_exec = []
+
+  # Private container registries configuration.
+  # This is the content of /etc/rancher/k3s/registries.yaml
+  # See https://docs.k3s.io/installation/private-registry for format details.
+  # k3s_registries = ""
+
+  # Additional environment variables set in /etc/environment on all nodes before k3s starts
+  # additional_k3s_environment = {}
+
+  # SELinux support. Disabled by default on Proxmox since Ubuntu cloud images don't include SELinux.
+  # Enable if using MicroOS or a SELinux-enabled OS.
+  # disable_selinux = true
+
+  # Use k3s built-in Klipper load balancer instead of MetalLB.
+  # Klipper is simpler but limited (single node, no L2/BGP). MetalLB is recommended for production.
+  # enable_klipper_metal_lb = false
+
+  # Enable k3s built-in local-path storage provisioner
+  # enable_local_storage = false
+
+  # Enable metrics-server for `kubectl top` and Horizontal Pod Autoscaler (HPA)
+  # enable_metrics_server = true
+
+  # Disable kube-proxy. Required when using Cilium in kube-proxy replacement mode.
+  # See https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/
+  # disable_kube_proxy = false
+
+  # IP address to use for testing internet connectivity during k3s installation
+  # address_for_connectivity_test = "1.1.1.1"
+
+  # etcd S3 backup configuration for disaster recovery.
+  # See https://docs.k3s.io/datastore/backup-restore for configuration options.
+  # etcd_s3_backup = {}
+
+
+  ## -- Advanced Custom Helm Values -- ##
+  # Override default values for Cilium or Calico CNI.
+  # For Cilium values: https://github.com/cilium/cilium/blob/main/install/kubernetes/cilium/values.yaml
+  # For Calico values: https://docs.tigera.io/calico/latest/reference/installation/api
+
+  # Cilium routing mode: "tunnel" (default, encapsulated via VXLAN/Geneve) or "native" (direct routing).
+  # Native mode requires the CCM to support route distribution.
+  # cilium_routing_mode = "tunnel"
+
+  # Custom Cilium Helm values. The following example enables Hubble observability:
+  /*   cilium_values = <<EOT
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+  EOT */
+
+  # Custom Calico values:
+  /*   calico_values = <<EOT
+installation:
+  calicoNetwork:
+    bgp: Disabled
+    ipPools:
+    - cidr: 10.42.0.0/16
+      encapsulation: VXLAN
+  EOT */
+}
+
+# -- Provider Configuration -- #
+
+provider "proxmox" {
+  endpoint  = "https://pve.example.com:8006"
+  api_token = var.proxmox_api_token != "" ? var.proxmox_api_token : local.proxmox_api_token
+  insecure  = true # Set to false if using valid TLS certificates
+
+  ssh {
+    agent = true
+  }
+}
+
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    proxmox = {
+      source  = "bpg/proxmox"
+      version = ">= 0.78.0"
+    }
+  }
+}
+
+# -- Outputs -- #
+
+output "kubeconfig" {
+  value     = module.kube-proxmox.kubeconfig
+  sensitive = true
+}
+
+output "k3s_endpoint" {
+  value = module.kube-proxmox.k3s_endpoint
+}
+
+# To get the kubeconfig:
+#   terraform output -raw kubeconfig > ~/.kube/config
+
+variable "proxmox_api_token" {
+  sensitive = true
+  default   = ""
+}

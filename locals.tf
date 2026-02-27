@@ -17,58 +17,6 @@ locals {
 
   cilium_ipv4_native_routing_cidr = coalesce(var.cilium_ipv4_native_routing_cidr, var.cluster_ipv4_cidr)
 
-  additional_k3s_environment = join("\n",
-    [
-      for var_name, var_value in var.additional_k3s_environment :
-      "${var_name}=\"${var_value}\""
-    ]
-  )
-  install_additional_k3s_environment = <<-EOT
-  cat >> /etc/environment <<EOF
-  ${local.additional_k3s_environment}
-  EOF
-  set -a; source /etc/environment; set +a;
-  EOT
-
-  install_system_alias = <<-EOT
-  cat > /etc/profile.d/00-alias.sh <<EOF
-  alias k=kubectl
-  EOF
-  EOT
-
-  install_kubectl_bash_completion = <<-EOT
-  cat > /etc/bash_completion.d/kubectl <<EOF
-  if command -v kubectl >/dev/null; then
-    source <(kubectl completion bash)
-    complete -o default -F __start_kubectl k
-  fi
-  EOF
-  EOT
-
-  common_pre_install_k3s_commands = concat(
-    [
-      "set -ex",
-      # rename the private network interface to eth1
-      "/etc/cloud/rename_interface.sh",
-      # prepare the k3s config directory
-      "mkdir -p /etc/rancher/k3s",
-      # move the config file into place and adjust permissions
-      "[ -f /tmp/config.yaml ] && mv /tmp/config.yaml /etc/rancher/k3s/config.yaml",
-      "chmod 0600 /etc/rancher/k3s/config.yaml",
-      # if the server has already been initialized just stop here
-      "[ -e /etc/rancher/k3s/k3s.yaml ] && exit 0",
-      local.install_additional_k3s_environment,
-      local.install_system_alias,
-      local.install_kubectl_bash_completion,
-    ],
-    # User-defined commands to execute just before installing k3s.
-    var.preinstall_exec,
-    # Wait for a successful connection to the internet.
-    ["timeout 180s /bin/sh -c 'while ! ping -c 1 ${var.address_for_connectivity_test} >/dev/null 2>&1; do echo \"Ready for k3s installation, waiting for a successful connection to the internet...\"; sleep 5; done; echo Connected'"]
-  )
-
-  common_post_install_k3s_commands = concat(var.postinstall_exec, ["restorecon -v /usr/local/bin/k3s"])
-
   kustomization_backup_yaml = yamlencode({
     apiVersion = "kustomize.config.k8s.io/v1beta1"
     kind       = "Kustomization"
@@ -108,25 +56,7 @@ locals {
     ]
   })
 
-  # @fixme SELinux for Ubuntu
-  apply_k3s_selinux = ["if test -e /usr/share/selinux/packages/k3s.pp; then /sbin/semodule -v -i /usr/share/selinux/packages/k3s.pp; fi"]
-  swap_node_label   = ["node.kubernetes.io/server-swap=enabled"]
-
-  k3s_install_command = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
-
-  install_k3s_server = concat(
-    local.common_pre_install_k3s_commands,
-    [format(local.k3s_install_command, "server ${var.k3s_exec_server_args}")],
-    var.disable_selinux ? [] : local.apply_k3s_selinux,
-    local.common_post_install_k3s_commands
-  )
-
-  install_k3s_agent = concat(
-    local.common_pre_install_k3s_commands,
-    [format(local.k3s_install_command, "agent ${var.k3s_exec_agent_args}")],
-    var.disable_selinux ? [] : local.apply_k3s_selinux,
-    local.common_post_install_k3s_commands
-  )
+  swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
 
   control_plane_nodes = merge([
     for pool_index, nodepool_obj in var.control_plane_nodepools : {
@@ -413,30 +343,11 @@ locals {
     "calico" = ["calico.yaml"]
   }
 
-  cni_k3s_settings = {
-    "flannel" = {
-      disable-network-policy = var.disable_network_policy
-      flannel-backend        = var.enable_wireguard ? "wireguard-native" : "vxlan"
-    }
-    "calico" = {
-      disable-network-policy = true
-      flannel-backend        = "none"
-    }
-    "cilium" = {
-      disable-network-policy = true
-      flannel-backend        = "none"
-    }
-  }
-
   etcd_s3_snapshots = length(keys(var.etcd_s3_backup)) > 0 ? merge(
     {
       "etcd-s3" = true
     },
   var.etcd_s3_backup) : {}
-
-  kubelet_arg                 = ["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"]
-  kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
-  flannel_iface               = "eth1"
 
   kube_apiserver_arg = var.authentication_config != "" ? ["authentication-config=/etc/rancher/k3s/authentication_config.yaml"] : []
 
@@ -771,70 +682,6 @@ kured_options = merge({
   "period" : "5m",
   "reboot-sentinel" : "/sentinel/reboot-required"
 }, var.kured_options)
-
-k3s_registries_update_script = <<EOF
-DATE=`date +%Y-%m-%d_%H-%M-%S`
-if cmp -s /tmp/registries.yaml /etc/rancher/k3s/registries.yaml; then
-  echo "No update required to the registries.yaml file"
-else
-  echo "Backing up /etc/rancher/k3s/registries.yaml to /tmp/registries_$DATE.yaml"
-  cp /etc/rancher/k3s/registries.yaml /tmp/registries_$DATE.yaml
-  echo "Updated registries.yaml detected, restart of k3s service required"
-  cp /tmp/registries.yaml /etc/rancher/k3s/registries.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/registries.yaml from backup" && cp /tmp/registries_$DATE.yaml /etc/rancher/k3s/registries.yaml && systemctl restart k3s)
-  elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/registries.yaml from backup" && cp /tmp/registries_$DATE.yaml /etc/rancher/k3s/registries.yaml && systemctl restart k3s-agent)
-  else
-    echo "No active k3s or k3s-agent service found"
-  fi
-  echo "k3s service or k3s-agent service restarted successfully"
-fi
-EOF
-
-k3s_config_update_script = <<EOF
-DATE=`date +%Y-%m-%d_%H-%M-%S`
-if cmp -s /tmp/config.yaml /etc/rancher/k3s/config.yaml; then
-  echo "No update required to the config.yaml file"
-else
-  if [ -f "/etc/rancher/k3s/config.yaml" ]; then
-    echo "Backing up /etc/rancher/k3s/config.yaml to /tmp/config_$DATE.yaml"
-    cp /etc/rancher/k3s/config.yaml /tmp/config_$DATE.yaml
-  fi
-  echo "Updated config.yaml detected, restart of k3s service required"
-  cp /tmp/config.yaml /etc/rancher/k3s/config.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s)
-  elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s-agent)
-  else
-    echo "No active k3s or k3s-agent service found"
-  fi
-  echo "k3s service or k3s-agent service (re)started successfully"
-fi
-EOF
-
-k3s_authentication_config_update_script = <<EOF
-DATE=`date +%Y-%m-%d_%H-%M-%S`
-if cmp -s /tmp/authentication_config.yaml /etc/rancher/k3s/authentication_config.yaml; then
-  echo "No update required to the authentication_config.yaml file"
-else
-  if [ -f "/etc/rancher/k3s/authentication_config.yaml" ]; then
-    echo "Backing up /etc/rancher/k3s/authentication_config.yaml to /tmp/authentication_config_$DATE.yaml"
-    cp /etc/rancher/k3s/authentication_config.yaml /tmp/authentication_config_$DATE.yaml
-  fi
-  echo "Updated authentication_config.yaml detected, restart of k3s service required"
-  cp /tmp/authentication_config.yaml /etc/rancher/k3s/authentication_config.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/k3s/authentication_config.yaml && systemctl restart k3s)
-  elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/k3s/authentication_config.yaml && systemctl restart k3s-agent)
-  else
-    echo "No active k3s or k3s-agent service found"
-  fi
-  echo "k3s service or k3s-agent service (re)started successfully"
-fi
-EOF
 
 cloudinit_write_files_common = <<EOT
 # Script to rename the private interface to eth1 and unify NetworkManager connection naming

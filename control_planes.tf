@@ -24,7 +24,7 @@ module "control_planes" {
   ipv4_subnet_id               = hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].id
   dns_servers                  = var.dns_servers
   k3s_registries               = var.k3s_registries
-  k3s_registries_update_script = local.k3s_registries_update_script
+  k3s_registries_update_script = module.k3s_config.k3s_registries_update_script
   cloudinit_write_files_common = each.value.os == "microos" ? local.cloudinit_write_files_common : local.ubuntu_cloudinit_write_files_common
   cloudinit_runcmd_common      = each.value.os == "microos" ? local.cloudinit_runcmd_common : local.ubuntu_cloudinit_runcmd_common
   swap_size                    = each.value.swap_size
@@ -96,10 +96,10 @@ locals {
       disable-cloud-controller    = true
       disable-kube-proxy          = var.disable_kube_proxy
       disable                     = local.disable_extras
-      kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
+      kubelet-arg                 = concat(module.k3s_config.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
-      kube-controller-manager-arg = local.kube_controller_manager_arg
-      flannel-iface               = local.flannel_iface
+      kube-controller-manager-arg = module.k3s_config.kube_controller_manager_arg
+      flannel-iface               = module.k3s_config.flannel_iface
       node-ip                     = module.control_planes[k].private_ipv4_address
       advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
@@ -110,7 +110,7 @@ locals {
       cluster-dns                 = var.cluster_dns_ipv4
       write-kubeconfig-mode       = "0644" # needed for import into rancher
     },
-    lookup(local.cni_k3s_settings, var.cni_plugin, {}),
+    lookup(module.k3s_config.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
       tls-san = concat([hcloud_load_balancer.control_plane.*.ipv4[0], hcloud_load_balancer_network.control_plane.*.ip[0]], var.additional_tls_sans)
       } : {
@@ -146,7 +146,7 @@ resource "null_resource" "control_plane_config" {
   }
 
   provisioner "remote-exec" {
-    inline = [local.k3s_config_update_script]
+    inline = [module.k3s_config.k3s_config_update_script]
   }
 
   depends_on = [
@@ -178,7 +178,7 @@ resource "null_resource" "authentication_config" {
   }
 
   provisioner "remote-exec" {
-    inline = [local.k3s_authentication_config_update_script]
+    inline = [module.k3s_config.k3s_authentication_config_update_script]
   }
 
   depends_on = [
@@ -204,7 +204,7 @@ resource "null_resource" "control_planes" {
 
   # Install k3s server
   provisioner "remote-exec" {
-    inline = local.install_k3s_server
+    inline = module.k3s_config.install_k3s_server
   }
 
   # Start the k3s server and wait for it to have started correctly

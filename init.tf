@@ -40,9 +40,9 @@ resource "null_resource" "first_control_plane" {
           disable-cloud-controller    = true
           disable-kube-proxy          = var.disable_kube_proxy
           disable                     = local.disable_extras
-          kubelet-arg                 = local.kubelet_arg
-          kube-controller-manager-arg = local.kube_controller_manager_arg
-          flannel-iface               = local.flannel_iface
+          kubelet-arg                 = module.k3s_config.kubelet_arg
+          kube-controller-manager-arg = module.k3s_config.kube_controller_manager_arg
+          flannel-iface               = module.k3s_config.flannel_iface
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           node-taint                  = local.control_plane_nodes[keys(module.control_planes)[0]].taints
@@ -51,7 +51,7 @@ resource "null_resource" "first_control_plane" {
           service-cidr                = var.service_ipv4_cidr
           cluster-dns                 = var.cluster_dns_ipv4
         },
-        lookup(local.cni_k3s_settings, var.cni_plugin, {}),
+        lookup(module.k3s_config.cni_k3s_settings, var.cni_plugin, {}),
         var.use_control_plane_lb ? {
           tls-san = concat([hcloud_load_balancer.control_plane.*.ipv4[0], hcloud_load_balancer_network.control_plane.*.ip[0]], var.additional_tls_sans)
           } : {
@@ -68,7 +68,7 @@ resource "null_resource" "first_control_plane" {
 
   # Install k3s server
   provisioner "remote-exec" {
-    inline = local.install_k3s_server
+    inline = module.k3s_config.install_k3s_server
   }
 
   # Upon reboot start k3s and wait for it to be ready to receive commands

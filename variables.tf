@@ -340,7 +340,7 @@ variable "autoscaler_nodepools" {
       value  = string
       effect = string
     })), [])
-    selinux      = optional(bool, true)
+    selinux = optional(bool, true)
   }))
   default = []
 }
@@ -1184,16 +1184,16 @@ variable "system_upgrade_window_options" {
     end      = ""
     timezone = ""
   }
-  
+
   validation {
     condition = (
       # Either all empty or all filled
-      (var.system_upgrade_window_options.days == "" && 
-       var.system_upgrade_window_options.start == "" && 
-       var.system_upgrade_window_options.end == "") ||
-      (var.system_upgrade_window_options.days != "" && 
-       var.system_upgrade_window_options.start != "" && 
-       var.system_upgrade_window_options.end != "")
+      (var.system_upgrade_window_options.days == "" &&
+        var.system_upgrade_window_options.start == "" &&
+      var.system_upgrade_window_options.end == "") ||
+      (var.system_upgrade_window_options.days != "" &&
+        var.system_upgrade_window_options.start != "" &&
+      var.system_upgrade_window_options.end != "")
     )
     error_message = "Window options must either be all empty or have days, start, and end defined."
   }

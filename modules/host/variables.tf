@@ -117,6 +117,12 @@ variable "k3s_registries_update_script" {
   type    = string
 }
 
+variable "extra_packages" {
+  description = "Additional packages to install via cloud-init (e.g., qemu-guest-agent for Proxmox)"
+  type        = list(string)
+  default     = []
+}
+
 variable "cloudinit_write_files_common" {
   default = ""
   type    = string

@@ -152,13 +152,14 @@ data "cloudinit_config" "config" {
     filename     = "init.cfg"
     content_type = "text/cloud-config"
     content = templatefile(
-      "${path.module}/templates/cloudinit.${var.os}.yaml.tpl",
+      "${path.module}/../../common/templates/cloudinit.${var.os}.yaml.tpl",
       {
         hostname                     = local.name
         sshAuthorizedKeys            = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         cloudinit_write_files_common = var.cloudinit_write_files_common
         cloudinit_runcmd_common      = var.cloudinit_runcmd_common
         swap_size                    = var.swap_size
+        extra_packages               = var.extra_packages
       }
     )
   }
