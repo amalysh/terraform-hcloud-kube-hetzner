@@ -15,5 +15,6 @@ spec:
   version: "${version}"
   targetNamespace: ${longhorn_namespace}
   bootstrap: ${bootstrap}
+  failurePolicy: abort
   valuesContent: |-
     ${values}
