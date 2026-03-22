@@ -130,6 +130,12 @@ resource "null_resource" "agents" {
   ]
 }
 
+locals {
+  agent_longhorn_mount_path = {
+    for k, v in local.agent_nodes : k => coalesce(v.longhorn_volume_mount_path, "/var/longhorn")
+  }
+}
+
 resource "hcloud_volume" "longhorn_volume" {
   for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
 
@@ -146,6 +152,31 @@ resource "hcloud_volume" "longhorn_volume" {
   delete_protection = var.enable_delete_protection.volume
 }
 
+resource "null_resource" "longhorn_volume_resize" {
+  for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
+
+  triggers = {
+    longhorn_volume_size = hcloud_volume.longhorn_volume[each.key].size
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "${var.longhorn_fstype == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.longhorn_volume[each.key].linux_device}",
+    ]
+  }
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = module.agents[each.key].ipv4_address
+    port           = var.ssh_port
+  }
+
+  depends_on = [
+    null_resource.configure_longhorn_volume
+  ]
+}
+
 resource "null_resource" "configure_longhorn_volume" {
   for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
 
@@ -156,10 +187,15 @@ resource "null_resource" "configure_longhorn_volume" {
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
     inline = [
-      "mkdir /var/longhorn >/dev/null 2>&1",
-      "mount -o discard,defaults ${hcloud_volume.longhorn_volume[each.key].linux_device} /var/longhorn",
+      # Clean up Hetzner automount — unmount the device and remove its fstab entry
+      "umount ${hcloud_volume.longhorn_volume[each.key].linux_device} 2>/dev/null || true",
+      "sed -i '\\|${hcloud_volume.longhorn_volume[each.key].linux_device}|d' /etc/fstab",
+      # Mount at the desired path
+      "mkdir -p ${local.agent_longhorn_mount_path[each.key]} >/dev/null 2>&1",
+      "mount -o discard,defaults ${hcloud_volume.longhorn_volume[each.key].linux_device} ${local.agent_longhorn_mount_path[each.key]}",
       "${var.longhorn_fstype == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.longhorn_volume[each.key].linux_device}",
-      "echo '${hcloud_volume.longhorn_volume[each.key].linux_device} /var/longhorn ${var.longhorn_fstype} discard,nofail,defaults 0 0' >> /etc/fstab"
+      "echo '${hcloud_volume.longhorn_volume[each.key].linux_device} ${local.agent_longhorn_mount_path[each.key]} ${var.longhorn_fstype} discard,nofail,defaults 0 0' >> /etc/fstab",
+      "systemctl daemon-reload"
     ]
   }
 
@@ -173,6 +209,49 @@ resource "null_resource" "configure_longhorn_volume" {
 
   depends_on = [
     hcloud_volume.longhorn_volume
+  ]
+}
+
+resource "null_resource" "agent_longhorn_disks" {
+  for_each = { for k, v in local.agent_nodes : k => v if v.longhorn_disks_config != null }
+
+  triggers = {
+    agent_id = module.agents[each.key].id
+  }
+
+  # Ensure local disk paths exist on the agent node
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = module.agents[each.key].ipv4_address
+    port           = var.ssh_port
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "mkdir -p /var/longhorn >/dev/null 2>&1",
+    ]
+  }
+
+  # Patch Longhorn Node CRD from control plane
+  provisioner "remote-exec" {
+    connection {
+      user           = "root"
+      private_key    = var.ssh_private_key
+      agent_identity = local.ssh_agent_identity
+      host           = module.control_planes[keys(module.control_planes)[0]].ipv4_address
+      port           = var.ssh_port
+    }
+
+    inline = [
+      "until kubectl -n longhorn-system get nodes.longhorn.io ${module.agents[each.key].name} 2>/dev/null; do echo 'Waiting for Longhorn node ${module.agents[each.key].name}...'; sleep 5; done",
+      "kubectl -n longhorn-system patch nodes.longhorn.io ${module.agents[each.key].name} --type=merge -p '{\"spec\":{\"disks\":${each.value.longhorn_disks_config}}}'",
+    ]
+  }
+
+  depends_on = [
+    null_resource.agents
   ]
 }
 
