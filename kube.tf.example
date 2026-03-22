@@ -226,16 +226,21 @@ module "kube-hetzner" {
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
     },
+    # --- Longhorn storage examples ---
+
+    # Case 1: Local storage only (no cloud volume)
+    # Longhorn creates a default disk at defaultDataPath using the node's own NVMe/SSD.
+    # This is the fastest option, ideal for databases and latency-sensitive workloads.
     {
-      name        = "storage",
-      server_type = "cx33",
-      location    = "nbg1",
-      # Fully optional, just a demo.
-      labels      = [
-        "node.kubernetes.io/server-usage=storage"
+      name        = "storage-local",
+      server_type = "cx32",
+      location    = "fsn1",
+      labels = [
+        "node.longhorn.io/create-default-disk=true"
       ],
-      taints      = [],
-      count       = 1
+      taints = [],
+      count  = 2
+    },
 
       # In the case of using Longhorn, you can use Hetzner volumes instead of using the node's own storage by specifying a value from 10 to 10240 (in GB)
       # It will create one volume per node in the nodepool, and configure Longhorn to use them.
@@ -247,6 +252,47 @@ module "kube-hetzner" {
       # longhorn_mount_path = "/var/lib/longhorn"
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
+    },
+
+    # Case 2: Cloud volume replaces local storage
+    {
+      name        = "storage-cloud",
+      server_type = "cx22",
+      location    = "fsn1",
+      labels = [
+        "node.longhorn.io/create-default-disk=true"
+      ],
+      taints             = [],
+      count              = 2,
+      longhorn_volume_size = 100
+    },
+
+    # Case 3: Both local NVMe + cloud volume (dual disk with tags)
+    {
+      name        = "storage-dual",
+      server_type = "cx32",
+      location    = "fsn1",
+      labels = [
+        "node.longhorn.io/create-default-disk=false"
+      ],
+      taints                     = [],
+      count                      = 2,
+      longhorn_volume_size       = 200,
+      longhorn_mount_path        = "/mnt/longhorn-hcloud",
+      longhorn_disks_config = jsonencode({
+        local-nvme = {
+          path            = "/var/longhorn"
+          allowScheduling = true
+          storageReserved = 0
+          tags            = ["fast"]
+        }
+        hcloud-vol = {
+          path            = "/mnt/longhorn-hcloud"
+          allowScheduling = true
+          storageReserved = 0
+          tags            = ["slow"]
+        }
+      })
     },
     # Egress nodepool useful to route egress traffic using Hetzner Floating IPs (https://docs.hetzner.com/cloud/floating-ips)
     # used with Cilium's Egress Gateway feature https://docs.cilium.io/en/stable/gettingstarted/egress-gateway/
@@ -560,6 +606,15 @@ module "kube-hetzner" {
   # Also, you can choose to use a Hetzner volume with Longhorn. By default, it will use the nodes own storage space, but if you add an attribute of
   # longhorn_volume_size (⚠️ not a variable, just a possible agent nodepool attribute) with a value between 10 and 10240 GB to your agent nodepool definition, it will create and use the volume in question.
   # See the agent nodepool section for an example of how to do that.
+  #
+  # By default, the cloud volume is mounted at /var/longhorn (the defaultDataPath), replacing local storage.
+  # To use BOTH local NVMe AND a cloud volume, set longhorn_volume_mount_path to a different path (e.g., "/mnt/longhorn-hcloud").
+  # This keeps the local disk at /var/longhorn and mounts the cloud volume separately.
+  #
+  # To tag disks for tiered StorageClasses (e.g., "fast" for local, "slow" for cloud):
+  # 1. Set the node label: node.longhorn.io/create-default-disk=false (we define disks ourselves)
+  # 2. Use longhorn_disks_config to patch the Longhorn Node CRD with disk definitions and tags
+  # See the agent nodepool "storage-dual" example for the full configuration.
 
   # To disable Hetzner CSI storage, you can set the following to "true", default is "false".
   # disable_hetzner_csi = true

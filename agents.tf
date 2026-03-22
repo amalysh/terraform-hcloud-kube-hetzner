@@ -179,6 +179,12 @@ moved {
   to   = terraform_data.agents
 }
 
+locals {
+  agent_longhorn_mount_path = {
+    for k, v in local.agent_nodes : k => coalesce(v.longhorn_volume_mount_path, "/var/longhorn")
+  }
+}
+
 resource "hcloud_volume" "longhorn_volume" {
   for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
 
@@ -209,8 +215,6 @@ resource "terraform_data" "configure_longhorn_volume" {
       "mkdir -p '${each.value.longhorn_mount_path}' >/dev/null",
       "mountpoint -q '${each.value.longhorn_mount_path}' || mount -o discard,defaults ${hcloud_volume.longhorn_volume[each.key].linux_device} '${each.value.longhorn_mount_path}'",
       "${var.longhorn_fstype == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.longhorn_volume[each.key].linux_device}",
-      # Match any non-comment line (^[^#]) with any first field, followed by a space and your mount path in the second column.
-      # This prevents false positives like /data matching /data1.
       "awk -v path='${each.value.longhorn_mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.longhorn_volume[each.key].linux_device} ${each.value.longhorn_mount_path} ${var.longhorn_fstype} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
     ]
   }
@@ -236,6 +240,49 @@ resource "terraform_data" "configure_longhorn_volume" {
 moved {
   from = null_resource.configure_longhorn_volume
   to   = terraform_data.configure_longhorn_volume
+}
+
+resource "null_resource" "agent_longhorn_disks" {
+  for_each = { for k, v in local.agent_nodes : k => v if v.longhorn_disks_config != null }
+
+  triggers = {
+    agent_id = module.agents[each.key].id
+  }
+
+  # Ensure local disk paths exist on the agent node
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = module.agents[each.key].ipv4_address
+    port           = var.ssh_port
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "mkdir -p /var/longhorn >/dev/null 2>&1",
+    ]
+  }
+
+  # Patch Longhorn Node CRD from control plane
+  provisioner "remote-exec" {
+    connection {
+      user           = "root"
+      private_key    = var.ssh_private_key
+      agent_identity = local.ssh_agent_identity
+      host           = module.control_planes[keys(module.control_planes)[0]].ipv4_address
+      port           = var.ssh_port
+    }
+
+    inline = [
+      "until kubectl -n longhorn-system get nodes.longhorn.io ${module.agents[each.key].name} 2>/dev/null; do echo 'Waiting for Longhorn node ${module.agents[each.key].name}...'; sleep 5; done",
+      "kubectl -n longhorn-system patch nodes.longhorn.io ${module.agents[each.key].name} --type=merge -p '{\"spec\":{\"disks\":${each.value.longhorn_disks_config}}}'",
+    ]
+  }
+
+  depends_on = [
+    null_resource.agents
+  ]
 }
 
 resource "hcloud_floating_ip" "agents" {
