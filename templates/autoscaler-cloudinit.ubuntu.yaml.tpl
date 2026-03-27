@@ -84,6 +84,9 @@ ${cloudinit_runcmd_common}
 - mkdir -p /var/lib/ca-certificates
 - echo "$(date) - Terraform deployment successfully finished" > /etc/node-ready
 
+# Bare metal routing (WireGuard gateway mode, empty if no external nodes)
+${baremetal_runcmd}
+
 # Start the install-k3s-agent service
 - ['/bin/bash', '/var/pre_install/install-k3s-agent.sh']
 

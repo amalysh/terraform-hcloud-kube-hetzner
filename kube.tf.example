@@ -1523,3 +1523,75 @@ variable "robot_password" {
   sensitive = true
   default   = ""
 }
+
+# ---
+# Bare Metal Nodes (optional)
+# ---
+
+# Hetzner Robot dedicated servers connected via vSwitch.
+# The vSwitch must be pre-created in the Hetzner Robot panel.
+#
+# IMPORTANT: Node map keys MUST be integers (as strings). They determine the private IP:
+#   key "0" → .101, key "1" → .102, key "5" → .106, etc. (cidrhost(subnet, key + 101))
+# Keys are stable — removing key "0" does NOT change key "1"'s IP. You can safely
+# add/remove nodes without affecting other nodes' addresses.
+#
+# Network interface is auto-detected from the default route; only override for multi-NIC setups.
+#
+# robot_nodepools = [
+#   {
+#     name       = "robot-workers"
+#     vswitch_id = 12345                  # vSwitch ID from Hetzner Robot panel
+#     vlan_id    = 4000                   # VLAN ID configured on the vSwitch
+#     mtu        = 1400                   # Hetzner recommends 1400 for vSwitch
+#     os         = "ubuntu"
+#     nodes = {
+#       "0" = {
+#         ipv4_address    = "1.2.3.4"    # Public IP for SSH
+#         enable_longhorn = true
+#         labels          = []
+#         taints          = []
+#       }
+#       "1" = {
+#         ipv4_address    = "5.6.7.8"
+#         enable_longhorn = true
+#         # network_interface = "enp0s31f6"  # Only needed for multi-NIC servers
+#         # Custom longhorn disk config (disables auto-create, uses CRD patch)
+#         longhorn_disks_config = jsonencode({
+#           local-nvme = {
+#             path            = "/var/longhorn"
+#             allowScheduling = true
+#             storageReserved = 0
+#             tags            = ["fast"]
+#           }
+#         })
+#       }
+#     }
+#   }
+# ]
+
+# External bare metal nodes connected via WireGuard tunnels.
+# WireGuard keys are auto-generated — just provide the node's public IP.
+#
+# IMPORTANT: Node map keys MUST be integers (as strings). They determine the WireGuard overlay IP:
+#   key "0" → 172.22.0.101, key "1" → 172.22.0.102, etc. (cidrhost(wireguard_network_cidr, key + 101))
+# Keys are stable — removing a node does NOT change other nodes' IPs.
+#
+# external_nodepools = [
+#   {
+#     name      = "external-workers"
+#     os        = "ubuntu"
+#     full_mesh = false  # false: CPs act as gateways (simpler). true: all nodes get WG tunnels (direct traffic).
+#     nodes = {
+#       "0" = {
+#         ipv4_address    = "203.0.113.10"  # Public IP for SSH and WireGuard endpoint
+#         enable_longhorn = false            # Node marked as unschedulable for Longhorn
+#         labels          = []
+#         taints          = []
+#       }
+#     }
+#   }
+# ]
+#
+# wireguard_port         = 51825
+# wireguard_network_cidr = "172.22.0.0/24"

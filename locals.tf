@@ -1,4 +1,17 @@
 locals {
+  # Whether any nodepool needs a MicroOS x86 or ARM snapshot
+  needs_microos_x86 = anytrue(concat(
+    [for pool in var.control_plane_nodepools : pool.os != "ubuntu" && substr(pool.server_type, 0, 3) != "cax"],
+    [for pool in var.agent_nodepools : pool.os != "ubuntu" && substr(pool.server_type, 0, 3) != "cax"],
+    [for pool in var.autoscaler_nodepools : pool.os != "ubuntu" && substr(pool.server_type, 0, 3) != "cax"],
+  ))
+
+  needs_microos_arm = anytrue(concat(
+    [for pool in var.control_plane_nodepools : pool.os != "ubuntu" && substr(pool.server_type, 0, 3) == "cax"],
+    [for pool in var.agent_nodepools : pool.os != "ubuntu" && substr(pool.server_type, 0, 3) == "cax"],
+    [for pool in var.autoscaler_nodepools : pool.os != "ubuntu" && substr(pool.server_type, 0, 3) == "cax"],
+  ))
+
   # ssh_agent_identity is not set if the private key is passed directly, but if ssh agent is used, the public key tells ssh agent which private key to use.
   # For terraforms provisioner.connection.agent_identity, we need the public key as a string.
   ssh_agent_identity = var.ssh_private_key == null ? var.ssh_public_key : null
@@ -62,7 +75,7 @@ locals {
   cat >> /etc/environment <<EOF
   ${local.additional_k3s_environment}
   EOF
-  set -a; source /etc/environment; set +a;
+  set -a; . /etc/environment; set +a;
   EOT
 
   install_system_alias = <<-EOT
@@ -539,7 +552,9 @@ locals {
         port        = ""
         source_ips  = ["0.0.0.0/0", "::/0"]
       }
-    ]
+    ],
+    # Auto-inject firewall rules for bare metal external nodes (WireGuard port)
+    local.baremetal_firewall_rules
   )
 
   # create a new firewall list based on base_firewall_rules but with direction-protocol-port as key

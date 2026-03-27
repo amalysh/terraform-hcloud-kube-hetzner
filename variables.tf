@@ -532,6 +532,11 @@ variable "autoscaler_nodepools" {
     selinux   = optional(bool, true)
   }))
   default = []
+
+  validation {
+    condition     = !(length(var.autoscaler_nodepools) > 0 && anytrue([for pool in var.external_nodepools : pool.full_mesh]))
+    error_message = "full_mesh=true on external_nodepools is not compatible with autoscaler_nodepools. Use full_mesh=false (CP gateway mode) instead."
+  }
 }
 
 variable "autoscaler_labels" {
@@ -1619,16 +1624,16 @@ variable "system_upgrade_window_options" {
     end      = ""
     timezone = ""
   }
-  
+
   validation {
     condition = (
       # Either all empty or all filled
-      (var.system_upgrade_window_options.days == "" && 
-       var.system_upgrade_window_options.start == "" && 
-       var.system_upgrade_window_options.end == "") ||
-      (var.system_upgrade_window_options.days != "" && 
-       var.system_upgrade_window_options.start != "" && 
-       var.system_upgrade_window_options.end != "")
+      (var.system_upgrade_window_options.days == "" &&
+        var.system_upgrade_window_options.start == "" &&
+      var.system_upgrade_window_options.end == "") ||
+      (var.system_upgrade_window_options.days != "" &&
+        var.system_upgrade_window_options.start != "" &&
+      var.system_upgrade_window_options.end != "")
     )
     error_message = "Window options must either be all empty or have days, start, and end defined."
   }
@@ -1639,3 +1644,76 @@ variable "ubuntu_image" {
   type        = string
   default     = "ubuntu-24.04"
 }
+
+# ---
+# Bare Metal Node Variables
+# ---
+
+variable "robot_nodepools" {
+  description = "Hetzner Robot (dedicated server) agent node pools connected via vSwitch."
+  type = list(object({
+    name       = string
+    vswitch_id = number
+    vlan_id    = number
+    mtu        = optional(number, 1400)
+    os         = optional(string, "ubuntu")
+    nodes = map(object({
+      ipv4_address               = string
+      network_interface          = optional(string)
+      labels                     = optional(list(string), [])
+      taints                     = optional(list(string), [])
+      kubelet_args               = optional(list(string), [])
+      enable_longhorn            = optional(bool, false)
+      longhorn_disks_config      = optional(string)
+      longhorn_volume_mount_path = optional(string, "/var/longhorn")
+      ssh_port                   = optional(number)
+      selinux                    = optional(bool, false)
+    }))
+    flannel_iface = optional(string)
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for pool in var.robot_nodepools : contains(["ubuntu", "microos"], pool.os)])
+    error_message = "OS must be 'ubuntu' or 'microos'."
+  }
+}
+
+variable "external_nodepools" {
+  description = "External bare metal agent node pools connected via WireGuard tunnels."
+  type = list(object({
+    name      = string
+    os        = optional(string, "ubuntu")
+    full_mesh = optional(bool, false)
+    nodes = map(object({
+      ipv4_address               = string
+      labels                     = optional(list(string), [])
+      taints                     = optional(list(string), [])
+      kubelet_args               = optional(list(string), [])
+      enable_longhorn            = optional(bool, false)
+      longhorn_disks_config      = optional(string)
+      longhorn_volume_mount_path = optional(string, "/var/longhorn")
+      ssh_port                   = optional(number)
+      selinux                    = optional(bool, false)
+    }))
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for pool in var.external_nodepools : contains(["ubuntu", "microos"], pool.os)])
+    error_message = "OS must be 'ubuntu' or 'microos'."
+  }
+}
+
+variable "wireguard_port" {
+  description = "UDP port for WireGuard tunnels between external nodes and control planes."
+  type        = number
+  default     = 51825
+}
+
+variable "wireguard_network_cidr" {
+  description = "CIDR for WireGuard overlay addressing between external nodes and cluster. Must not overlap with network_ipv4_cidr, cluster_ipv4_cidr, or service_ipv4_cidr."
+  type        = string
+  default     = "172.22.0.0/24"
+}
+

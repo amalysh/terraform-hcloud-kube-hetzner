@@ -4,12 +4,14 @@ resource "random_password" "k3s_token" {
 }
 
 data "hcloud_image" "microos_x86_snapshot" {
+  count             = local.needs_microos_x86 ? 1 : 0
   with_selector     = "microos-snapshot=yes"
   with_architecture = "x86"
   most_recent       = true
 }
 
 data "hcloud_image" "microos_arm_snapshot" {
+  count             = local.needs_microos_arm ? 1 : 0
   with_selector     = "microos-snapshot=yes"
   with_architecture = "arm"
   most_recent       = true

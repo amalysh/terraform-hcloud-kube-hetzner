@@ -188,3 +188,30 @@ output "vswitch_subnet" {
   description = "Attributes of the vSwitch subnet."
   value       = try(hcloud_network_subnet.vswitch_subnet[0], null)
 }
+
+# ---
+# Bare Metal Outputs
+# ---
+
+output "robot_nodes" {
+  description = "Robot (dedicated server) node details."
+  value = { for k, v in local.robot_nodes : k => {
+    name         = v.name
+    ipv4_address = v.ipv4_address
+    private_ipv4 = local.robot_node_private_ipv4[k]
+  } }
+}
+
+output "external_nodes" {
+  description = "External bare metal node details."
+  value = { for k, v in local.external_nodes : k => {
+    name         = v.name
+    ipv4_address = v.ipv4_address
+    wg_ip        = local.external_node_wg_ips[k]
+  } }
+}
+
+output "baremetal_iptables_rules" {
+  description = "iptables script generated from hcloud firewall rules, for bare metal nodes."
+  value       = local.baremetal_iptables_script
+}

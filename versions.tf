@@ -25,6 +25,10 @@ terraform {
       source  = "anapsix/semvers"
       version = ">= 0.7.1"
     }
+    wireguard = {
+      source  = "OJFord/wireguard"
+      version = ">= 0.3.1"
+    }
   }
 }
 

@@ -9,7 +9,7 @@ module "agents" {
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
   os                               = each.value.os
-  microos_snapshot_id              = each.value.os == "ubuntu" ? var.ubuntu_image : substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
+  microos_snapshot_id              = each.value.os == "ubuntu" ? var.ubuntu_image : substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot[0].id : data.hcloud_image.microos_x86_snapshot[0].id
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
   ssh_port                         = var.ssh_port
@@ -275,13 +275,14 @@ resource "null_resource" "agent_longhorn_disks" {
     }
 
     inline = [
-      "until kubectl -n longhorn-system get nodes.longhorn.io ${module.agents[each.key].name} 2>/dev/null; do echo 'Waiting for Longhorn node ${module.agents[each.key].name}...'; sleep 5; done",
+      "timeout 600 bash -c 'until kubectl -n longhorn-system get nodes.longhorn.io ${module.agents[each.key].name} 2>/dev/null; do echo \"Waiting for Longhorn node ${module.agents[each.key].name}...\"; sleep 5; done'",
       "kubectl -n longhorn-system patch nodes.longhorn.io ${module.agents[each.key].name} --type=merge -p '{\"spec\":{\"disks\":${each.value.longhorn_disks_config}}}'",
     ]
   }
 
   depends_on = [
-    null_resource.agents
+    null_resource.agents,
+    null_resource.first_control_plane
   ]
 }
 

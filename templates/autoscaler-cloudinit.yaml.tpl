@@ -155,5 +155,8 @@ ${cloudinit_runcmd_common}
   systemctl enable --now zram.service
 %{endif~}
 
+# Bare metal routing (WireGuard gateway mode, empty if no external nodes)
+${baremetal_runcmd}
+
 # Start the install-k3s-agent service
 - ['/bin/bash', '/var/pre_install/install-k3s-agent.sh']

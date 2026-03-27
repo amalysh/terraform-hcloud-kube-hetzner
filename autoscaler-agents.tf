@@ -1,14 +1,14 @@
 locals {
-  cluster_prefix = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
-  first_nodepool_os = var.autoscaler_nodepools[0].os
+  cluster_prefix    = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+  first_nodepool_os = length(var.autoscaler_nodepools) > 0 ? var.autoscaler_nodepools[0].os : ""
   first_nodepool_snapshot_id = length(var.autoscaler_nodepools) == 0 ? "" : (
-    local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
+    local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot[0].id : data.hcloud_image.microos_x86_snapshot[0].id
   )
 
-  imageList = {
-    arm64 : local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : tostring(data.hcloud_image.microos_arm_snapshot.id)
-    amd64 : local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : tostring(data.hcloud_image.microos_x86_snapshot.id)
-  }
+  imageList = length(var.autoscaler_nodepools) > 0 ? {
+    arm64 : local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : tostring(data.hcloud_image.microos_arm_snapshot[0].id)
+    amd64 : local.first_nodepool_os == "ubuntu" ? var.ubuntu_image : tostring(data.hcloud_image.microos_x86_snapshot[0].id)
+  } : {}
 
   nodeConfigName = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
   cluster_config = {
@@ -138,7 +138,8 @@ data "cloudinit_config" "autoscaler_config" {
         cloudinit_write_files_common = var.autoscaler_nodepools[count.index].os == "ubuntu" ? local.ubuntu_cloudinit_write_files_common : local.cloudinit_write_files_common
         cloudinit_runcmd_common      = var.autoscaler_nodepools[count.index].os == "ubuntu" ? local.ubuntu_cloudinit_runcmd_common : local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
-        network_gw_ipv4              = local.network_gw_ipv4
+        network_gw_ipv4              = local.network_gw_ipv4,
+        baremetal_runcmd             = local.baremetal_autoscaler_runcmd
       }
     )
   }
@@ -181,6 +182,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
         network_gw_ipv4              = local.network_gw_ipv4,
+        baremetal_runcmd             = local.baremetal_autoscaler_runcmd
       }
     )
   }
