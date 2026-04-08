@@ -70,12 +70,34 @@ resource "hcloud_server" "server" {
     timeout = "10m"
   }
 
+  # Wait for cloud-init to finish, then reboot if a kernel upgrade requires it.
+  # Uses systemd-run to schedule the reboot 2s in the future so the provisioner
+  # exits cleanly before the node goes down.
+  provisioner "remote-exec" {
+    inline = [
+      "echo 'Waiting for cloud-init to complete...'",
+      "cloud-init status --wait || true",
+      "echo 'Cloud-init finished.'",
+      "if [ -f /var/run/reboot-required ]; then echo 'Kernel upgrade requires reboot, scheduling...'; systemd-run --on-active=2 /sbin/reboot; else echo 'No reboot required'; fi",
+    ]
+  }
+
+  # Give the node time to reboot before Terraform tries to reconnect.
+  # Without this pause, Terraform opens a new SSH session within the systemd-run
+  # delay window, and the reboot kills that session mid-provisioner causing
+  # "exited without exit status or exit signal" errors.
+  provisioner "local-exec" {
+    command = "echo 'Waiting 30s for potential reboot to complete...' && sleep 30"
+  }
+
+  # If the node rebooted, Terraform reconnects here (connection timeout = 10m).
+  # Wait for the system to be fully ready before proceeding.
   provisioner "remote-exec" {
     inline = [
       "echo 'Waiting for system to become fully ready...'",
 
       # Wait until the system is fully booted and in a running state.
-      "timeout 600 bash -c 'until systemctl is-system-running --quiet; do echo \"Waiting for system...\"; sleep 3; done'",
+      "timeout 600 bash -c 'until systemctl is-system-running --quiet 2>/dev/null; do echo \"Waiting for system...\"; sleep 3; done'",
 
       "echo 'System is fully ready!'"
     ]

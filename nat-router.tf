@@ -2,7 +2,7 @@ locals {
   nat_gateway_ip = var.nat_router != null ? cidrhost(hcloud_network_subnet.nat_router[0].ip_range, 1) : ""
 
   nat_router_ip = (
-    var.nat_router != null && var.nat_router.enable_redundancy ?
+    var.nat_router != null && try(var.nat_router.enable_redundancy, false) ?
     {
       0 = cidrhost(hcloud_network_subnet.nat_router[0].ip_range, 2),
       1 = cidrhost(hcloud_network_subnet.nat_router[0].ip_range, 3)
@@ -17,7 +17,7 @@ locals {
 }
 
 resource "random_string" "nat_router" {
-  count = var.nat_router != null && var.nat_router.enable_redundancy ? 2 : 0
+  count = var.nat_router != null && try(var.nat_router.enable_redundancy, false) ? 2 : 0
 
   length  = 3
   lower   = true
@@ -32,7 +32,7 @@ resource "random_string" "nat_router" {
 }
 
 resource "random_password" "nat_router_vip_auth_pass" {
-  count   = var.nat_router != null && var.nat_router.enable_redundancy ? 1 : 0
+  count   = var.nat_router != null && try(var.nat_router.enable_redundancy, false) ? 1 : 0
   length  = 8
   special = false
 }

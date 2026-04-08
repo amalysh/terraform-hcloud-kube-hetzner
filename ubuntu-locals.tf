@@ -100,7 +100,7 @@ EOT
 
   ubuntu_cloudinit_runcmd_common = <<EOT
 # Ubuntu runs several default services that are not needed for K3s. Disable them to free up RAM & CPU.
-- [systemctl, disable, '--now', 'snapd snapd.seeded snapd.socket']
+- [systemctl, disable, '--now', 'snapd', 'snapd.seeded', 'snapd.socket']
 - [systemctl, disable, '--now', 'apport']
 - [systemctl, disable, '--now', 'ufw']
 
@@ -112,11 +112,12 @@ EOT
 - [sed, '-i', 's/#SystemMaxUse=/SystemMaxUse=3G/g', /etc/systemd/journald.conf]
 - [sed, '-i', 's/#MaxRetentionSec=/MaxRetentionSec=1week/g', /etc/systemd/journald.conf]
 
-# Allow network interface
+# Rename private network interface to eth1
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
+- ['/etc/cloud/rename_interface.sh']
 
 # Restart the sshd service to apply the new config
-- [systemctl, 'restart', 'sshd']
+- [systemctl, 'restart', 'sshd', 'ssh']
 
 # Make sure the network is up
 - [systemctl, restart, NetworkManager]

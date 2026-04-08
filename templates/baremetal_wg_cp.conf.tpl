@@ -1,5 +1,7 @@
 [Interface]
+%{~ if address != "" }
 Address = ${address}
+%{~ endif }
 ListenPort = ${listen_port}
 PrivateKey = ${private_key}
 %{ for peer in peers ~}

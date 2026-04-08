@@ -24,6 +24,13 @@ ${cloudinit_write_files_common}
   encoding: base64
   path: /var/pre_install/install-k3s-agent.sh
 
+# DEBUG: root password for console access
+# users:
+#   - name: root
+#     plain_text_passwd: test12345
+#     lock_passwd: false
+# ssh_pwauth: true
+
 # Add ssh authorized keys
 ssh_authorized_keys:
 %{ for key in sshAuthorizedKeys ~}
@@ -61,11 +68,15 @@ runcmd:
   netplan apply
   # 4. restart network manager
   systemctl restart NetworkManager
-  # 5. disable systemd-networkd
-  systemctl disable systemd-networkd
-  systemctl stop systemd-networkd
+  # 5. disable systemd-networkd (including socket to prevent reactivation)
+  for i in systemd-networkd.socket systemd-networkd ; do
+    systemctl disable $i
+    systemctl stop $i
+  done
   systemctl enable NetworkManager
-  # systemctl restart NetworkManager
+  # 6. remove cloud-init's default network config
+  # to prevent it from overwriting NetworkManager's config on reboot
+  rm -fv /etc/netplan/50-cloud-init.yaml
   echo "NetworkManager is now managing network"
 
 ${cloudinit_runcmd_common}
@@ -92,7 +103,7 @@ ${baremetal_runcmd}
 
 # Reboot if kernel was updated to ensure new kernel is loaded
 power_state:
-  delay: "+1"
+  delay: 0
   mode: reboot
   message: "Rebooting after cloud-init to load updated kernel"
   condition: test -f /var/run/reboot-required

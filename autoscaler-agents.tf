@@ -62,19 +62,27 @@ resource "terraform_data" "configure_autoscaler" {
   count = length(var.autoscaler_nodepools) > 0 ? 1 : 0
 
   triggers_replace = {
-    template = local.autoscaler_yaml
-  }
-  connection {
-    user           = "root"
-    private_key    = var.ssh_private_key
-    agent_identity = local.ssh_agent_identity
-    host           = local.first_control_plane_ip
-    port           = var.ssh_port
-
+    template            = local.autoscaler_yaml
+    ssh_private_key     = var.ssh_private_key
+    ssh_agent_identity  = local.ssh_agent_identity
+    host                = local.first_control_plane_ip
+    ssh_port            = var.ssh_port
     bastion_host        = local.ssh_bastion.bastion_host
     bastion_port        = local.ssh_bastion.bastion_port
     bastion_user        = local.ssh_bastion.bastion_user
     bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+  connection {
+    user           = "root"
+    private_key    = self.triggers_replace.ssh_private_key
+    agent_identity = self.triggers_replace.ssh_agent_identity
+    host           = self.triggers_replace.host
+    port           = self.triggers_replace.ssh_port
+
+    bastion_host        = self.triggers_replace.bastion_host
+    bastion_port        = self.triggers_replace.bastion_port
+    bastion_user        = self.triggers_replace.bastion_user
+    bastion_private_key = self.triggers_replace.bastion_private_key
 
   }
 
@@ -87,6 +95,23 @@ resource "terraform_data" "configure_autoscaler" {
   # Create/Apply the definition
   provisioner "remote-exec" {
     inline = ["kubectl apply -f /tmp/autoscaler.yaml"]
+  }
+
+  # On destroy: remove autoscaler deployment and RBAC from the cluster.
+  # Autoscaled nodes (hcloud servers) are left running — they continue
+  # serving as regular k3s agents until manually removed.
+  provisioner "remote-exec" {
+    when = destroy
+    inline = [
+      "echo 'Removing cluster-autoscaler resources from cluster...'",
+      "kubectl delete deployment cluster-autoscaler -n kube-system --ignore-not-found=true",
+      "kubectl delete clusterrolebinding cluster-autoscaler --ignore-not-found=true",
+      "kubectl delete clusterrole cluster-autoscaler --ignore-not-found=true",
+      "kubectl delete rolebinding cluster-autoscaler -n kube-system --ignore-not-found=true",
+      "kubectl delete role cluster-autoscaler -n kube-system --ignore-not-found=true",
+      "kubectl delete serviceaccount cluster-autoscaler -n kube-system --ignore-not-found=true",
+      "echo 'Autoscaler cleanup complete.'",
+    ]
   }
 
   depends_on = [
@@ -123,8 +148,8 @@ data "cloudinit_config" "autoscaler_config" {
         zram_size         = var.autoscaler_nodepools[count.index].zram_size
         k3s_config = yamlencode(merge(
           {
-            server = local.k3s_endpoint
-            token  = local.k3s_token
+            server        = local.k3s_endpoint
+            token         = local.k3s_token
             kubelet-arg   = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].kubelet_args, var.k3s_global_kubelet_args, var.k3s_autoscaler_kubelet_args)
             flannel-iface = local.flannel_iface
             node-label    = concat(local.default_agent_labels, [for k, v in var.autoscaler_nodepools[count.index].labels : "${k}=${v}"], var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? local.swap_node_label : [])

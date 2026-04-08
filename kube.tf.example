@@ -1013,6 +1013,8 @@ module "kube-hetzner" {
   # If you want to configure a different CNI for k3s, use this flag
   # possible values: flannel (Default), calico, and cilium
   # As for Cilium, we allow infinite configurations via helm values, please check the CNI section of the readme over at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/#cni.
+  # Use cilium_merge_values (NOT cilium_values) to add settings on top of module defaults.
+  #
   # Also, see the cilium_values at towards the end of this file, in the advanced section (or use cilium_merge_values).
   # ⚠️ Depending on your setup, sometimes you need your control-planes to have more than
   # 2GB of RAM if you are going to use Cilium, otherwise the pods will not start.
@@ -1538,13 +1540,11 @@ variable "robot_password" {
 #
 # Network interface is auto-detected from the default route; only override for multi-NIC setups.
 #
+# Requires: vswitch_id, vlan_id set at top level (alongside other network vars).
 # robot_nodepools = [
 #   {
-#     name       = "robot-workers"
-#     vswitch_id = 12345                  # vSwitch ID from Hetzner Robot panel
-#     vlan_id    = 4000                   # VLAN ID configured on the vSwitch
-#     mtu        = 1400                   # Hetzner recommends 1400 for vSwitch
-#     os         = "ubuntu"
+#     name = "robot-workers"
+#     os   = "ubuntu"
 #     nodes = {
 #       "0" = {
 #         ipv4_address    = "1.2.3.4"    # Public IP for SSH

@@ -23,6 +23,7 @@ table inet k3s-firewall {
     ip saddr ${cluster_ipv4_cidr} accept
     ip saddr ${service_ipv4_cidr} accept
 ${has_external ? "    udp dport ${wireguard_port} accept" : ""}
+${has_external ? "    udp sport ${wireguard_port} accept" : ""}
 
     # Mirror hcloud firewall rules (external-facing)
 %{~ for rule in rules }
@@ -69,6 +70,7 @@ ${has_external ? "    udp dport ${wireguard_port} accept" : ""}
     ip daddr ${cluster_ipv4_cidr} accept
     ip daddr ${service_ipv4_cidr} accept
 ${has_external ? "    udp dport ${wireguard_port} accept" : ""}
+${has_external ? "    udp sport ${wireguard_port} accept" : ""}
 
     # Mirror hcloud firewall rules (external-facing)
 %{~ for rule in rules }
@@ -134,7 +136,9 @@ iptables-legacy -A K3S-FW-FORWARD -d ${service_ipv4_cidr} -j ACCEPT
 
 %{~ if has_external }
 iptables-legacy -A K3S-FW-INPUT -p udp --dport ${wireguard_port} -j ACCEPT
+iptables-legacy -A K3S-FW-INPUT -p udp --sport ${wireguard_port} -j ACCEPT
 iptables-legacy -A K3S-FW-OUTPUT -p udp --dport ${wireguard_port} -j ACCEPT
+iptables-legacy -A K3S-FW-OUTPUT -p udp --sport ${wireguard_port} -j ACCEPT
 %{~ endif }
 
 %{~ for rule in rules }

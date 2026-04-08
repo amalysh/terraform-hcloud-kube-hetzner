@@ -181,7 +181,7 @@ moved {
 
 locals {
   agent_longhorn_mount_path = {
-    for k, v in local.agent_nodes : k => coalesce(v.longhorn_volume_mount_path, "/var/longhorn")
+    for k, v in local.agent_nodes : k => coalesce(v.longhorn_mount_path, "/var/longhorn")
   }
 }
 
@@ -281,8 +281,8 @@ resource "null_resource" "agent_longhorn_disks" {
   }
 
   depends_on = [
-    null_resource.agents,
-    null_resource.first_control_plane
+    terraform_data.agents,
+    terraform_data.first_control_plane
   ]
 }
 

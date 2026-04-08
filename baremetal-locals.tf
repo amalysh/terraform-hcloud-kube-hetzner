@@ -7,21 +7,18 @@ locals {
       for node_key, node in pool.nodes :
       "${pool_idx}-${node_key}-${pool.name}" => {
         nodepool_name     = pool.name
-        pool_idx          = pool_idx
         os                = pool.os
-        vswitch_id        = pool.vswitch_id
-        vlan_id           = pool.vlan_id
-        mtu               = pool.mtu
         name              = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${pool.name}-${node_key}"
         ipv4_address      = node.ipv4_address
         node_key          = node_key
         network_interface = node.network_interface
-        flannel_iface     = coalesce(pool.flannel_iface, "vlan${pool.vlan_id}")
+        flannel_iface     = coalesce(pool.flannel_iface, "vlan${coalesce(var.vlan_id, 0)}")
         ssh_port          = coalesce(node.ssh_port, var.ssh_port)
         selinux           = node.selinux
         labels = concat(
           local.default_agent_labels,
           ["instance.hetzner.cloud/is-root-server=true"],
+          ["instance.hetzner.cloud/provided-by=robot"],
           node.enable_longhorn && node.longhorn_disks_config == null ? ["node.longhorn.io/create-default-disk=true"] : ["node.longhorn.io/create-default-disk=false"],
           node.labels
         )
@@ -51,6 +48,8 @@ locals {
         labels = concat(
           local.default_agent_labels,
           ["instance.hetzner.cloud/is-root-server=true"],
+          ["instance.hetzner.cloud/provided-by=external"],
+          local.is_cilium_cni ? ["node-encryption-opt-out=true"] : [],
           node.enable_longhorn && node.longhorn_disks_config == null ? ["node.longhorn.io/create-default-disk=true"] : ["node.longhorn.io/create-default-disk=false"],
           node.labels
         )
@@ -80,9 +79,39 @@ locals {
 
   has_external_nodes = length(local.external_nodes) > 0
   has_robot_nodes    = length(local.robot_nodes) > 0
+
+  # vSwitch MTU: Hetzner vSwitch has 1400 max. Cilium encapsulation needs lower (1350).
+  vswitch_mtu   = var.cni_plugin == "cilium" ? 1350 : 1400
+  is_cilium_cni = var.cni_plugin == "cilium"
   # Note: anytrue([]) returns false, so these are both false when no external nodes exist.
   any_non_full_mesh = anytrue([for k, v in local.external_nodes : !v.full_mesh])
   any_full_mesh     = anytrue([for k, v in local.external_nodes : v.full_mesh])
+
+  # Assign each external node a gateway CP in round-robin for HA distribution.
+  # Each external node routes autoscaled ↔ external traffic through its assigned CP.
+  # With N CPs and M external nodes, traffic is spread across min(N,M) CPs.
+  external_node_gateway_cp = {
+    for idx, key in local.external_node_keys_sorted :
+    key => local.cp_keys_sorted[idx % length(local.cp_keys_sorted)]
+  }
+
+  # Route failover CronJob + DaemonSet manifest (runs in-cluster, uses existing hcloud secret)
+  # CronJob: monitors CP health, updates Hetzner route + ConfigMap
+  # DaemonSet: runs on external nodes, reads ConfigMap, applies wg set to switch AllowedIPs
+  wg_gw_route_failover_yaml = local.has_external_nodes && length(var.autoscaler_nodepools) > 0 ? templatefile("${path.module}/templates/wg-gw-route-failover.yaml.tpl", {
+    network_id            = data.hcloud_network.k3s.id
+    cp_private_ips        = join(" ", [for cp_key in local.cp_keys_sorted : module.control_planes[cp_key].private_ipv4_address])
+    external_wg_ips       = join(" ", [for ext_key in local.external_node_keys_sorted : local.external_node_wg_ips[ext_key]])
+    initial_gateway_cp_ip = module.control_planes[local.external_node_gateway_cp[local.external_node_keys_sorted[0]]].private_ipv4_address
+    network_cidr          = var.network_ipv4_cidr
+    cp_peers_json = replace(jsonencode([
+      for cp_key in local.cp_keys_sorted : {
+        ip     = module.control_planes[cp_key].private_ipv4_address
+        pubkey = wireguard_asymmetric_key.cp_wg[cp_key].public_key
+        wg_ip  = local.is_cilium_cni ? "" : local.cp_wg_ips[cp_key]
+      }
+    ]), "'", "'\\''")
+  }) : ""
 
   # Cloud agents + robot nodes that need WG tunnels (for full_mesh external pools).
   # Avoid conditional to prevent Terraform type-mismatch errors — filter produces empty map naturally.
@@ -94,19 +123,17 @@ locals {
   # ---
   # Robot kubelet args: when CCM Robot support is enabled, use cloud-provider=external
   # so the CCM can initialize the node. Otherwise, skip it to avoid the uninitialized taint.
-  # TODO: uncomment the conditionals when robot_ccm_enabled variable is added
-  # robot_kubelet_arg = var.robot_ccm_enabled ? local.kubelet_arg : ["volume-plugin-dir=/var/lib/kubelet/volumeplugins"]
-  robot_kubelet_arg = ["volume-plugin-dir=/var/lib/kubelet/volumeplugins"]
+  # With CCM: use full kubelet_arg (includes cloud-provider=external + kubelet config).
+  # Without CCM: same args but filter out cloud-provider=external.
+  robot_kubelet_arg = var.robot_ccm_enabled ? local.kubelet_arg : [for arg in local.kubelet_arg : arg if !startswith(arg, "cloud-provider")]
 
   # Provider ID: without CCM Robot support, use "baremetal://" prefix so the CCM
   # can't parse it and won't delete the node when it goes NotReady.
   # With CCM Robot support, use "hrobot://<server_number>" so the CCM manages it.
-  # TODO: uncomment the conditional when robot_ccm_enabled variable is added
-  # robot_provider_id_prefix = var.robot_ccm_enabled ? "hrobot://" : "baremetal://"
-  robot_provider_id_prefix = "baremetal://"
+  robot_provider_id_prefix = var.robot_ccm_enabled ? "hrobot://" : "baremetal://"
 
   # External nodes are never managed by hcloud CCM — always skip cloud-provider=external.
-  external_kubelet_arg        = ["volume-plugin-dir=/var/lib/kubelet/volumeplugins"]
+  external_kubelet_arg        = [for arg in local.kubelet_arg : arg if !startswith(arg, "cloud-provider")]
   external_provider_id_prefix = "baremetal://"
 
   # ---
@@ -283,20 +310,14 @@ EOT
 
   # ---
   # Autoscaler cloud-init: WG route commands for gateway mode
-  # Empty string when no external nodes or full_mesh only — cloud-init templates produce no extra lines.
+  # Autoscaled nodes get gateway routes to external nodes via CP.
+  # In gateway mode (non_full_mesh): all cloud agents need this.
+  # In full_mesh mode: only autoscaled nodes need this (static agents have direct wg-mesh).
+  # Either way, autoscaled nodes don't have wg-mesh — they route through CPs.
   # ---
-  baremetal_autoscaler_runcmd = local.any_non_full_mesh ? join("\n", [
-    "- ip route replace ${var.wireguard_network_cidr} via ${module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}",
-    "- mkdir -p /etc/systemd/network",
-    "- |",
-    "  cat > /etc/systemd/network/99-wg-route.network <<ROUTEEOF",
-    "  [Match]",
-    "  Name=eth1",
-    "  ",
-    "  [Route]",
-    "  Destination=${var.wireguard_network_cidr}",
-    "  Gateway=${module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}",
-    "  ROUTEEOF",
+  baremetal_autoscaler_runcmd = local.any_non_full_mesh || (local.has_external_nodes && length(var.autoscaler_nodepools) > 0) ? join("\n", [
+    "- ip route replace ${var.wireguard_network_cidr} via ${local.network_gw_ipv4} dev eth1",
+    "- nmcli connection modify eth1 +ipv4.routes '${var.wireguard_network_cidr} ${local.network_gw_ipv4} 100' 2>/dev/null || true",
   ]) : ""
 
   # ---

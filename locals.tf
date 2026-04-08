@@ -49,7 +49,7 @@ locals {
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
   dns_servers_ipv6 = [for ip in var.dns_servers : ip if provider::assert::ipv6(ip)]
 
-  use_robot_ccm = var.robot_ccm_enabled && var.robot_user != "" && var.robot_password != ""
+  use_robot_ccm = nonsensitive(var.robot_ccm_enabled && var.robot_user != "" && var.robot_password != "")
   # Key of the kube_system_secret-items is the name of the Secret. Values of those items are the key-value pairs of Secret.
   kube_system_secrets = {
     "hcloud" = merge(
@@ -448,7 +448,13 @@ locals {
     var.exclude_agents_from_external_load_balancers ? ["node.kubernetes.io/exclude-from-external-load-balancers=true"] : [],
     var.automatically_upgrade_k3s ? ["k3s_upgrade=true"] : []
   )
-  default_control_plane_labels = concat(local.allow_loadbalancer_target_on_control_plane ? [] : ["node.kubernetes.io/exclude-from-external-load-balancers=true"], var.automatically_upgrade_k3s ? ["k3s_upgrade=true"] : [])
+  default_control_plane_labels = concat(
+    local.allow_loadbalancer_target_on_control_plane ? [] : ["node.kubernetes.io/exclude-from-external-load-balancers=true"],
+    var.automatically_upgrade_k3s ? ["k3s_upgrade=true"] : [],
+    # Opt CPs out of Cilium node-to-node encryption when external nodes exist.
+    # etcd peer traffic must work before Cilium is ready (bootstrap chicken-and-egg).
+    local.has_external_nodes && var.cni_plugin == "cilium" ? ["node-encryption-opt-out=true"] : []
+  )
 
   # Default k3s node taints
   default_control_plane_taints = concat([], local.allow_scheduling_on_control_plane ? [] : ["node-role.kubernetes.io/control-plane:NoSchedule"])
@@ -683,6 +689,15 @@ encryption:
   # Enable node encryption for node-to-node traffic
   nodeEncryption: true
   type: wireguard
+%{if local.has_external_nodes~}
+# Opt out CPs and external nodes from Cilium node-to-node encryption:
+# - CPs: etcd peer traffic must work before Cilium is ready (bootstrap chicken-and-egg).
+# - External: Cilium BPF intercepts host traffic, breaking wg-mesh tunnels.
+# Both node types get the node-encryption-opt-out=true label via k3s config.
+# Cloud agents and robot nodes keep full Cilium WG node encryption.
+extraArgs:
+  - "--node-encryption-opt-out-labels=node-encryption-opt-out=true"
+%{endif~}
 %{endif~}
 %{if var.cilium_egress_gateway_enabled}
 egressGateway:
@@ -703,7 +718,7 @@ hubble:
 %{endif~}
 
 
-MTU: %{if local.use_robot_ccm} 1350 %{else} 1450 %{endif}
+MTU: %{if local.use_robot_ccm || local.has_robot_nodes} 1350 %{else} 1450 %{endif}
   EOT
 
   cilium_values = module.values_merger_cilium.values
@@ -754,6 +769,17 @@ persistence:
   EOT
 
   hetzner_csi_values = var.hetzner_csi_values != "" ? var.hetzner_csi_values : <<-EOT
+controller:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: "instance.hetzner.cloud/provided-by"
+                operator: NotIn
+                values:
+                  - robot
+                  - external
 node:
   affinity:
     nodeAffinity:
@@ -768,6 +794,7 @@ node:
                 operator: NotIn
                 values:
                   - robot
+                  - external
 EOT
 
   nginx_values_default = <<EOT
@@ -828,12 +855,22 @@ env:
     value: "${!local.using_klipper_lb}"
   HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS:
     value: "true"
-%{if local.use_robot_ccm~}
-  HCLOUD_NETWORK_ROUTES_ENABLED:
-    value: "false"
-%{endif~}
+# CCM network routes always enabled — needed for cross-subnet host traffic.
+# Unused routes in tunnel mode are harmless.
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
+%{if local.has_robot_nodes || local.has_external_nodes~}
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: "instance.hetzner.cloud/provided-by"
+              operator: NotIn
+              values:
+                - robot
+                - external
+%{endif~}
   EOT
 
   hetzner_ccm_values = module.values_merger_hetzner_ccm.values
@@ -1137,9 +1174,9 @@ else
   echo "Updated config.yaml detected, restart of k3s service required"
   cp /tmp/config.yaml /etc/rancher/k3s/config.yaml
   if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s)
+    systemctl restart k3s || (echo "Error: Failed to restart k3s. Last 20 log lines:" && journalctl -u k3s --no-pager -n 20 && echo "Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s)
   elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s-agent)
+    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Last 20 log lines:" && journalctl -u k3s-agent --no-pager -n 20 && echo "Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s-agent)
   else
     echo "No active k3s or k3s-agent service found"
   fi
@@ -1242,7 +1279,20 @@ cloudinit_write_files_common = <<EOT
 
         MAC=$(cat "/sys/class/net/$INTERFACE/address") || return 1
 
+        # udev rule for legacy compatibility
         echo "SUBSYSTEM==\"net\", ACTION==\"add\", DRIVERS==\"?*\", ATTR{address}==\"$MAC\", NAME=\"eth1\"" > /etc/udev/rules.d/70-persistent-net.rules
+
+        # systemd .link file — processed by 80-net-setup-link.rules which overrides
+        # lower-priority udev rules. Without this, systemd predictable naming (enp7s0)
+        # wins on reboot because 80 > 70.
+        mkdir -p /etc/systemd/network
+        cat > /etc/systemd/network/10-eth1.link <<LINKEOF
+        [Match]
+        MACAddress=$MAC
+
+        [Link]
+        Name=eth1
+        LINKEOF
 
         ip link set "$INTERFACE" down
         ip link set "$INTERFACE" name eth1
@@ -1369,8 +1419,9 @@ cloudinit_runcmd_common = <<EOT
 - [sed, '-i', 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g', /etc/snapper/configs/root]
 - [sed, '-i', 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g', /etc/snapper/configs/root]
 
-# Allow network interface
+# Rename private network interface to eth1
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
+- ['/etc/cloud/rename_interface.sh']
 
 # Restart the sshd service to apply the new config
 - [systemctl, 'restart', 'sshd']

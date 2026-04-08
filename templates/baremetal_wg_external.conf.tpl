@@ -1,5 +1,6 @@
 [Interface]
 Address = ${address}
+ListenPort = ${listen_port}
 PrivateKey = ${private_key}
 %{ for peer in cp_peers ~}
 

@@ -283,7 +283,7 @@ Default is **Flannel**. Switch by setting `cni_plugin` to `"calico"` or `"cilium
 
 ### Cilium Configuration
 
-Customize via `cilium_values` with [Cilium helm values](https://github.com/cilium/cilium/blob/master/install/kubernetes/cilium/values.yaml).
+Customize via `cilium_merge_values` to add/override specific settings on top of module defaults. Use `cilium_values` only to replace ALL defaults entirely. See [Cilium helm values](https://github.com/cilium/cilium/blob/master/install/kubernetes/cilium/values.yaml).
 
 | Feature | Variable |
 |---------|----------|
@@ -396,9 +396,12 @@ See `kube.tf.example` for examples.
 
 ---
 
-## 🖥️ Dedicated Servers
+## 🖥️ Dedicated & External Servers
 
-Integrate Hetzner Robot servers via [the dedicated server guide](docs/add-robot-server.md).
+Integrate bare metal servers as Kubernetes agent nodes:
+
+- **Hetzner Robot** dedicated servers via vSwitch: [Robot server guide](docs/add-robot-server.md)
+- **External bare metal** servers (any provider) via WireGuard: [External server guide](docs/add-external-server.md)
 
 ---
 

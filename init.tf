@@ -48,8 +48,11 @@ resource "hcloud_load_balancer_network" "cluster" {
   }
 }
 
+# Only create Terraform-managed LB targets when using Klipper LB (no CCM LB management).
+# When CCM manages the LB (default), it adds targets via the ingress Service annotation —
+# Terraform targets would duplicate them, wasting the LB's target limit.
 resource "hcloud_load_balancer_target" "cluster" {
-  count = local.has_external_load_balancer ? 0 : 1
+  count = local.has_external_load_balancer || !local.using_klipper_lb ? 0 : 1
 
   depends_on       = [hcloud_load_balancer_network.cluster]
   type             = "label_selector"
@@ -57,8 +60,6 @@ resource "hcloud_load_balancer_target" "cluster" {
   label_selector = join(",", concat(
     [for k, v in local.labels : "${k}=${v}"],
     [
-      # Build label selector from lb_target_groups (respects allow_loadbalancer_target_on_control_plane)
-      # Results in either: role in (control_plane_node,agent_node) or role in (agent_node)
       for key in keys(merge(local.lb_target_groups...)) :
       "${key} in (${
         join(",", compact([
@@ -371,9 +372,10 @@ resource "terraform_data" "kustomization" {
     content = var.hetzner_ccm_use_helm ? "" : templatefile(
       "${path.module}/templates/ccm.yaml.tpl",
       {
-        cluster_cidr_ipv4   = var.cluster_ipv4_cidr
-        default_lb_location = var.load_balancer_location
-        using_klipper_lb    = local.using_klipper_lb
+        cluster_cidr_ipv4       = var.cluster_ipv4_cidr
+        default_lb_location     = var.load_balancer_location
+        using_klipper_lb        = local.using_klipper_lb
+        restrict_to_cloud_nodes = local.has_robot_nodes || local.has_external_nodes
     })
     destination = "/var/post_install/ccm.yaml"
   }
@@ -565,7 +567,9 @@ resource "terraform_data" "kustomization" {
     terraform_data.control_planes,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
-    terraform_data.kube_system_secrets
+    terraform_data.kube_system_secrets,
+    # Label CPs for Cilium node encryption opt-out BEFORE applying Cilium values
+    terraform_data.cp_node_encryption_opt_out,
   ]
 }
 moved {

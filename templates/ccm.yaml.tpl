@@ -29,3 +29,15 @@ spec:
               value: "${!using_klipper_lb}"
             - name: "HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS"
               value: "true"
+%{if restrict_to_cloud_nodes~}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: "instance.hetzner.cloud/provided-by"
+                    operator: NotIn
+                    values:
+                      - robot
+                      - external
+%{endif~}

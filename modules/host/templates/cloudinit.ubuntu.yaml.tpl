@@ -48,15 +48,20 @@ runcmd:
     version: 2
     renderer: NetworkManager
   EOF
+  chmod 600 /etc/netplan/00-kube-hetzner-config.yaml
   # 3. apply the new network configuration
   netplan apply
   # 4. restart network manager
   systemctl restart NetworkManager
   # 5. disable systemd-networkd
-  systemctl disable systemd-networkd
-  systemctl stop systemd-networkd
+  for i in systemd-networkd.socket systemd-networkd ; do
+    systemctl disable $i
+    systemctl stop $i
+  done
   systemctl enable NetworkManager
-  # systemctl restart NetworkManager
+  # remove cloud-init's default network config
+  # to prevent it from overwriting NetworkManager's config on reboot
+  rm -f /etc/netplan/50-cloud-init.yaml
   echo "NetworkManager is now managing network"
 
 ${cloudinit_runcmd_common}
@@ -101,10 +106,3 @@ ${cloudinit_runcmd_common}
 - ln -s -f bash /bin/sh
 - mkdir -p /var/lib/ca-certificates
 - echo "$(date) - Terraform deployment successfully finished" > /etc/node-ready
-
-# Reboot if kernel was updated to ensure new kernel is loaded
-power_state:
-  delay: "+1"
-  mode: reboot
-  message: "Rebooting after cloud-init to load updated kernel"
-  condition: test -f /var/run/reboot-required

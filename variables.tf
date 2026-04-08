@@ -174,7 +174,7 @@ variable "nat_router" {
   })
 
   validation {
-    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router.standby_location != ""
+    condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || try(var.nat_router.standby_location, "") != ""
     error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
   }
 }
@@ -186,7 +186,7 @@ variable "nat_router_hcloud_token" {
   sensitive   = true
 
   validation {
-    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router_hcloud_token != ""
+    condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || var.nat_router_hcloud_token != ""
     error_message = "When nat_router.enable_redundancy is true, nat_router_hcloud_token must be provided."
   }
 }
@@ -218,6 +218,13 @@ variable "vswitch_id" {
   type        = number
   default     = null
 }
+
+variable "vlan_id" {
+  description = "VLAN ID for the vSwitch interface on Robot dedicated servers. Required when robot_nodepools is non-empty."
+  type        = number
+  default     = null
+}
+
 
 variable "load_balancer_location" {
   description = "Default load balancer location."
@@ -533,10 +540,6 @@ variable "autoscaler_nodepools" {
   }))
   default = []
 
-  validation {
-    condition     = !(length(var.autoscaler_nodepools) > 0 && anytrue([for pool in var.external_nodepools : pool.full_mesh]))
-    error_message = "full_mesh=true on external_nodepools is not compatible with autoscaler_nodepools. Use full_mesh=false (CP gateway mode) instead."
-  }
 }
 
 variable "autoscaler_labels" {
@@ -1017,6 +1020,11 @@ variable "cilium_routing_mode" {
     condition     = contains(["tunnel", "native"], var.cilium_routing_mode)
     error_message = "The cilium_routing_mode must be one of \"tunnel\" or \"native\"."
   }
+
+  validation {
+    condition     = var.cilium_routing_mode != "native" || (length(var.robot_nodepools) == 0 && length(var.external_nodepools) == 0)
+    error_message = "Cilium native routing mode is not compatible with robot or external bare metal nodes. Use \"tunnel\" mode instead."
+  }
 }
 
 variable "cilium_loadbalancer_acceleration_mode" {
@@ -1027,6 +1035,11 @@ variable "cilium_loadbalancer_acceleration_mode" {
   validation {
     condition     = contains(["disabled", "native", "best-effort"], var.cilium_loadbalancer_acceleration_mode)
     error_message = "The cilium_loadbalancer_acceleration_mode must be one of \"disabled\", \"native\" or \"best-effort\"."
+  }
+
+  validation {
+    condition     = var.cilium_loadbalancer_acceleration_mode != "native" || (length(var.robot_nodepools) == 0 && length(var.external_nodepools) == 0)
+    error_message = "Cilium native XDP acceleration is not compatible with robot or external bare metal nodes. Use \"best-effort\" or \"disabled\" instead."
   }
 }
 
@@ -1421,7 +1434,7 @@ variable "flannel_backend" {
   description = "Override the flannel backend used by k3s. When set, this takes precedence over enable_wireguard. Valid values: vxlan, host-gw, wireguard-native. See https://docs.k3s.io/networking/basic-network-options for details. Use wireguard-native for Robot nodes with vSwitch to avoid MTU issues."
 
   validation {
-    condition     = var.flannel_backend == null || contains(["vxlan", "host-gw", "wireguard-native"], var.flannel_backend)
+    condition     = var.flannel_backend == null ? true : contains(["vxlan", "host-gw", "wireguard-native"], var.flannel_backend)
     error_message = "The flannel_backend must be one of: vxlan, host-gw, wireguard-native."
   }
 }
@@ -1611,34 +1624,6 @@ variable "control_plane_endpoint" {
   }
 }
 
-variable "system_upgrade_window_options" {
-  type = object({
-    days     = string
-    start    = string
-    end      = string
-    timezone = string
-  })
-  default = {
-    days     = ""
-    start    = ""
-    end      = ""
-    timezone = ""
-  }
-
-  validation {
-    condition = (
-      # Either all empty or all filled
-      (var.system_upgrade_window_options.days == "" &&
-        var.system_upgrade_window_options.start == "" &&
-      var.system_upgrade_window_options.end == "") ||
-      (var.system_upgrade_window_options.days != "" &&
-        var.system_upgrade_window_options.start != "" &&
-      var.system_upgrade_window_options.end != "")
-    )
-    error_message = "Window options must either be all empty or have days, start, and end defined."
-  }
-}
-
 variable "ubuntu_image" {
   description = "Ubuntu image to be used."
   type        = string
@@ -1650,13 +1635,10 @@ variable "ubuntu_image" {
 # ---
 
 variable "robot_nodepools" {
-  description = "Hetzner Robot (dedicated server) agent node pools connected via vSwitch."
+  description = "Hetzner Robot (dedicated server) agent node pools connected via vSwitch. Requires vswitch_id and vlan_id to be set."
   type = list(object({
-    name       = string
-    vswitch_id = number
-    vlan_id    = number
-    mtu        = optional(number, 1400)
-    os         = optional(string, "ubuntu")
+    name = string
+    os   = optional(string, "ubuntu")
     nodes = map(object({
       ipv4_address               = string
       network_interface          = optional(string)
@@ -1702,6 +1684,11 @@ variable "external_nodepools" {
   validation {
     condition     = alltrue([for pool in var.external_nodepools : contains(["ubuntu", "microos"], pool.os)])
     error_message = "OS must be 'ubuntu' or 'microos'."
+  }
+
+  validation {
+    condition     = var.cni_plugin != "cilium" || alltrue([for pool in var.external_nodepools : pool.full_mesh])
+    error_message = "Cilium requires full_mesh=true on all external_nodepools. Cilium's BPF routes traffic through its overlay, so all nodes need direct wg-mesh tunnels to external nodes."
   }
 }
 
