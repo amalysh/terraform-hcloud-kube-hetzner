@@ -376,6 +376,7 @@ resource "terraform_data" "kustomization" {
         default_lb_location     = var.load_balancer_location
         using_klipper_lb        = local.using_klipper_lb
         restrict_to_cloud_nodes = local.has_robot_nodes || local.has_external_nodes
+        robot_enabled           = var.robot_ccm_enabled
     })
     destination = "/var/post_install/ccm.yaml"
   }

@@ -23,6 +23,7 @@ If you want Robot nodes as **direct load balancer targets** (instead of routing 
 
 - **Webservice User** created in Hetzner Robot account settings (for API access)
 - Set `robot_ccm_enabled = true` with `robot_user` and `robot_password`
+- Set `server_number` on each robot node (the numeric server ID from the Robot web panel)
 
 Without Robot CCM, nodes are still fully functional and reachable via the overlay network through cloud nodes that are LB targets.
 
@@ -45,6 +46,7 @@ robot_nodepools = [
     nodes = {
       0 = {
         ipv4_address  = "203.0.113.10"   # Robot server public IP
+        server_number = 1234567           # Required when robot_ccm_enabled = true
         # Optional settings:
         # network_interface = "enp6s0"   # Auto-detected if not set
         # labels            = ["workload=compute"]
@@ -55,7 +57,8 @@ robot_nodepools = [
         # selinux           = false
       }
       1 = {
-        ipv4_address = "203.0.113.11"
+        ipv4_address  = "203.0.113.11"
+        server_number = 7654321
       }
     }
   }
@@ -72,7 +75,7 @@ robot_nodepools = [
 Nodes are automatically named `${cluster_name}-${pool_name}-${node_key}`, e.g. `mycluster-workers-0`.
 
 > [!IMPORTANT]
-> When `robot_ccm_enabled = true`, the node name **must match** the server name in the Hetzner Robot web-UI.
+> When `robot_ccm_enabled = true`, each node must have `server_number` set to the numeric Hetzner Robot server ID (visible in the Robot web panel URL, e.g., `https://robot.hetzner.com/server/1234567`).
 
 ### Private IP allocation
 

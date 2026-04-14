@@ -1650,6 +1650,7 @@ variable "robot_nodepools" {
       longhorn_volume_mount_path = optional(string, "/var/longhorn")
       ssh_port                   = optional(number)
       selinux                    = optional(bool, false)
+      server_number              = optional(number)
     }))
     flannel_iface = optional(string)
   }))

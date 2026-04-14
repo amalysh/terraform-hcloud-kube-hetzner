@@ -855,8 +855,10 @@ env:
     value: "${!local.using_klipper_lb}"
   HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS:
     value: "true"
-# CCM network routes always enabled — needed for cross-subnet host traffic.
-# Unused routes in tunnel mode are harmless.
+%{if local.use_robot_ccm~}
+  HCLOUD_NETWORK_ROUTES_ENABLED:
+    value: "false"
+%{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
 %{if local.has_robot_nodes || local.has_external_nodes~}

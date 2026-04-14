@@ -20,7 +20,7 @@ locals {
       node-name        = v.name
       server           = local.k3s_endpoint
       token            = local.k3s_token
-      kubelet-arg      = concat(["provider-id=${local.robot_provider_id_prefix}${v.name}"], local.robot_kubelet_arg, var.k3s_global_kubelet_args, var.k3s_agent_kubelet_args, v.kubelet_args)
+      kubelet-arg      = concat(["provider-id=${local.robot_provider_id_prefix}${var.robot_ccm_enabled ? v.server_number : v.name}"], local.robot_kubelet_arg, var.k3s_global_kubelet_args, var.k3s_agent_kubelet_args, v.kubelet_args)
       node-ip          = "${local.robot_node_private_ipv4[k]},${v.ipv4_address}"
       node-external-ip = v.ipv4_address
       node-label       = v.labels
@@ -149,10 +149,37 @@ resource "terraform_data" "robot_vlan_setup" {
 }
 
 # ---
+# Robot Server Name (set via Robot API so CCM can match node name to server)
+# ---
+resource "terraform_data" "robot_server_name" {
+  for_each = var.robot_ccm_enabled ? local.robot_nodes : {}
+
+  triggers_replace = {
+    server_number = each.value.server_number
+    node_name     = each.value.name
+  }
+
+  provisioner "local-exec" {
+    command = "curl -sf -u \"$ROBOT_USER:$ROBOT_PASSWORD\" -d \"server_name=${each.value.name}\" https://robot-ws.your-server.de/server/${each.value.server_number}"
+    environment = {
+      ROBOT_USER     = var.robot_user
+      ROBOT_PASSWORD = var.robot_password
+    }
+  }
+}
+
+# ---
 # K3s Config Upload
 # ---
 resource "terraform_data" "robot_agent_config" {
   for_each = local.robot_nodes
+
+  lifecycle {
+    precondition {
+      condition     = !var.robot_ccm_enabled || each.value.server_number != null
+      error_message = "When robot_ccm_enabled is true, node '${each.value.name}' must have server_number set (numeric Hetzner Robot server ID)."
+    }
+  }
 
   triggers_replace = {
     config = sha1(yamlencode(local.k3s-robot-agent-config[each.key]))

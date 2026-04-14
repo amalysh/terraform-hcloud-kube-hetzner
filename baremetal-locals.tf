@@ -27,6 +27,7 @@ locals {
         enable_longhorn            = node.enable_longhorn
         longhorn_disks_config      = node.longhorn_disks_config
         longhorn_volume_mount_path = coalesce(node.longhorn_volume_mount_path, "/var/longhorn")
+        server_number              = node.server_number
       }
     }
   ]...)
@@ -184,20 +185,29 @@ systemctl enable --now unattended-upgrades 2>/dev/null || true
 systemctl disable --now unattended-upgrades 2>/dev/null || true
 %{endif~}
 
-# Switch to NetworkManager (same as cloud agent cloud-init)
-for f in /etc/netplan/*.yaml; do
-  [ -f "$f" ] && sed -i 's/renderer:/#renderer:/g' "$f"
-done
-cat > /etc/netplan/00-kube-hetzner-config.yaml <<'NMEOF'
+# Switch to NetworkManager as sole network manager
+mkdir -p /etc/cloud/cloud.cfg.d
+cat > /etc/cloud/cloud.cfg.d/99-network-manager.cfg <<'NMCFG'
+system_info:
+  network:
+    renderers: ['network-manager']
+NMCFG
+# Tell netplan to use NetworkManager as backend for all existing configs
+cat > /etc/netplan/00-kube-hetzner-config.yaml <<'NPEOF'
 network:
   version: 2
   renderer: NetworkManager
-NMEOF
+NPEOF
 chmod 600 /etc/netplan/00-kube-hetzner-config.yaml
+# Apply: converts existing netplan configs into NM keyfiles
 netplan apply
 systemctl restart NetworkManager
-systemctl disable --now systemd-networkd systemd-networkd.socket
-systemctl enable NetworkManager
+# Hard-disable systemd-networkd
+systemctl stop systemd-networkd.socket systemd-networkd
+systemctl disable systemd-networkd.socket systemd-networkd
+systemctl mask systemd-networkd.socket systemd-networkd
+# Ensure NetworkManager is active
+systemctl enable --now NetworkManager
 
 # SSH hardening
 mkdir -p /etc/ssh/sshd_config.d

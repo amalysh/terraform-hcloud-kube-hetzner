@@ -29,6 +29,12 @@ spec:
               value: "${!using_klipper_lb}"
             - name: "HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS"
               value: "true"
+%{if robot_enabled~}
+            - name: "ROBOT_ENABLED"
+              value: "true"
+            - name: "HCLOUD_NETWORK_ROUTES_ENABLED"
+              value: "false"
+%{endif~}
 %{if restrict_to_cloud_nodes~}
       affinity:
         nodeAffinity:
