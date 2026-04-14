@@ -1,7 +1,5 @@
 #cloud-config
 
-debug: True
-
 package_update: true
 package_upgrade: true
 packages:
@@ -34,34 +32,24 @@ preserve_hostname: true
 runcmd:
 - date >> /root/cloud-init-alive.txt
 
-# let's prepare for NetworkManager to manage network
+# Switch to NetworkManager as sole network manager
 - |
-  # 1. replace netplan files renderer with empty line
-  for f in /etc/netplan/*.yaml ; do
-    if [ -f $f ] ; then
-      sed -i 's/renderer:/#renderer:/g' $f
-    fi
-  done
-  # 2. create a new network configuration
-  cat << EOF >> /etc/netplan/00-kube-hetzner-config.yaml
+  # Tell netplan to use NetworkManager as backend for all existing configs
+  cat > /etc/netplan/00-kube-hetzner-config.yaml <<'EOF'
   network:
     version: 2
     renderer: NetworkManager
   EOF
   chmod 600 /etc/netplan/00-kube-hetzner-config.yaml
-  # 3. apply the new network configuration
+  # Apply: converts existing netplan configs into NM keyfiles
   netplan apply
-  # 4. restart network manager
   systemctl restart NetworkManager
-  # 5. disable systemd-networkd
-  for i in systemd-networkd.socket systemd-networkd ; do
-    systemctl disable $i
-    systemctl stop $i
-  done
-  systemctl enable NetworkManager
-  # remove cloud-init's default network config
-  # to prevent it from overwriting NetworkManager's config on reboot
-  rm -f /etc/netplan/50-cloud-init.yaml
+  # Hard-disable systemd-networkd
+  systemctl stop systemd-networkd.socket systemd-networkd
+  systemctl disable systemd-networkd.socket systemd-networkd
+  systemctl mask systemd-networkd.socket systemd-networkd
+  # Ensure NetworkManager is active
+  systemctl enable --now NetworkManager
   echo "NetworkManager is now managing network"
 
 ${cloudinit_runcmd_common}

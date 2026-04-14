@@ -75,6 +75,13 @@ locals {
   path: /etc/rancher/k3s/registries.yaml
 %{endif}
 
+# Tell cloud-init to use NetworkManager as network renderer on subsequent boots
+- content: |
+    system_info:
+      network:
+        renderers: ['network-manager']
+  path: /etc/cloud/cloud.cfg.d/99-network-manager.cfg
+
 # Configure NetworkManager DNS handling
 # dns=none: manual resolv.conf management (when dns_servers defined)
 # dns=default + rc-manager=file: NetworkManager writes DHCP DNS directly to /etc/resolv.conf
