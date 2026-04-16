@@ -110,6 +110,9 @@ EOT
 - [systemctl, disable, '--now', 'snapd', 'snapd.seeded', 'snapd.socket']
 - [systemctl, disable, '--now', 'apport']
 - [systemctl, disable, '--now', 'ufw']
+- [systemctl, stop, 'rpcbind', 'rpcbind.socket']
+- [systemctl, disable, '--now', 'rpcbind', 'rpcbind.socket']
+- [systemctl, mask, 'rpcbind', 'rpcbind.socket']
 
 # DNS will be managed by NetworkManager (via DHCP) or write_files (when dns_servers is defined).
 - [systemctl, disable, '--now', 'systemd-resolved']

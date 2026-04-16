@@ -176,7 +176,12 @@ apt-get autoremove -y
 apt-get install -y open-iscsi nfs-common policycoreutils telnet vim curl network-manager wireguard-tools
 
 # Disable unnecessary services
+systemctl stop snapd snapd.seeded snapd.socket apport ufw 2>/dev/null || true
 systemctl disable --now snapd snapd.seeded snapd.socket apport ufw 2>/dev/null || true
+systemctl mask snapd snapd.seeded snapd.socket apport ufw 2>/dev/null || true
+systemctl stop rpcbind rpcbind.socket 2>/dev/null || true
+systemctl disable --now rpcbind rpcbind.socket 2>/dev/null || true
+systemctl mask rpcbind rpcbind.socket 2>/dev/null || true
 
 # OS auto-upgrades (controlled by automatically_upgrade_os variable)
 %{if var.automatically_upgrade_os~}
