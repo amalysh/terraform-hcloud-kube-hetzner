@@ -233,7 +233,11 @@ SSHEOF
 systemctl restart ssh
 
 # Multipath blacklist
-echo -e 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}' >> /etc/multipath.conf
+cat >> /etc/multipath.conf <<'MPEOF'
+blacklist {
+  devnode "^sd[a-z0-9]+"
+}
+MPEOF
 
 # Journald limits
 mkdir -p /etc/systemd/journald.conf.d
@@ -280,7 +284,11 @@ SSHEOF
 systemctl restart sshd
 
 # Multipath blacklist
-echo -e 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}' >> /etc/multipath.conf
+cat >> /etc/multipath.conf <<'MPEOF'
+blacklist {
+  devnode "^sd[a-z0-9]+"
+}
+MPEOF
 
 # Journald limits
 mkdir -p /etc/systemd/journald.conf.d

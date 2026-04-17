@@ -93,7 +93,12 @@ ${cloudinit_runcmd_common}
   # - rm /etc/resolv.conf
   # - echo "nameserver 1.1.1.1" > /etc/resolv.conf
   # - echo "nameserver 1.0.0.1" >> /etc/resolv.conf
-- echo 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}\n' >> /etc/multipath.conf
+- |
+  cat >> /etc/multipath.conf <<'MPEOF'
+  blacklist {
+    devnode "^sd[a-z0-9]+"
+  }
+  MPEOF
 - systemctl enable iscsid
 - modprobe dm_crypt
 - echo dm_crypt > /etc/modules-load.d/dm_crypt.conf
