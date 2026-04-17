@@ -173,7 +173,11 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get dist-upgrade -y
 apt-get autoremove -y
-apt-get install -y open-iscsi nfs-common policycoreutils telnet vim curl network-manager wireguard-tools
+apt-get install -y open-iscsi nfs-common policycoreutils telnet vim curl network-manager wireguard-tools cryptsetup
+
+# Load dm_crypt for Longhorn encrypted volumes (persistent across reboots)
+modprobe dm_crypt
+echo dm_crypt > /etc/modules-load.d/dm_crypt.conf
 
 # Disable unnecessary services
 systemctl stop snapd snapd.seeded snapd.socket apport ufw 2>/dev/null || true
@@ -204,6 +208,9 @@ network:
   renderer: NetworkManager
 NPEOF
 chmod 600 /etc/netplan/00-kube-hetzner-config.yaml
+# Remove any explicit 'renderer: networkd' from existing netplan configs
+# so our 00-kube-hetzner-config.yaml global renderer (NetworkManager) wins
+sed -i '/^\s*renderer:\s*networkd/d' /etc/netplan/*.yaml
 # Apply: converts existing netplan configs into NM keyfiles
 netplan apply
 systemctl restart NetworkManager

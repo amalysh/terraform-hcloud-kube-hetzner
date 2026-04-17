@@ -9,6 +9,7 @@ packages:
   - nfs-common
   - policycoreutils
   - network-manager
+  - cryptsetup
 
 write_files:
 
@@ -41,6 +42,9 @@ runcmd:
     renderer: NetworkManager
   EOF
   chmod 600 /etc/netplan/00-kube-hetzner-config.yaml
+  # Remove any explicit 'renderer: networkd' from existing netplan configs
+  # so our 00-kube-hetzner-config.yaml global renderer (NetworkManager) wins
+  sed -i '/^\s*renderer:\s*networkd/d' /etc/netplan/*.yaml
   # Apply: converts existing netplan configs into NM keyfiles
   netplan apply
   systemctl restart NetworkManager
@@ -91,6 +95,8 @@ ${cloudinit_runcmd_common}
   # - echo "nameserver 1.0.0.1" >> /etc/resolv.conf
 - echo 'blacklist {\n  devnode "^sd[a-z0-9]+"\n}\n' >> /etc/multipath.conf
 - systemctl enable iscsid
+- modprobe dm_crypt
+- echo dm_crypt > /etc/modules-load.d/dm_crypt.conf
 - ln -s -f bash /bin/sh
 - mkdir -p /var/lib/ca-certificates
 - echo "$(date) - Terraform deployment successfully finished" > /etc/node-ready
