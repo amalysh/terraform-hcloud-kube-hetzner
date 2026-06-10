@@ -95,6 +95,13 @@ NFTEOF
 # Persist nftables rules
 mkdir -p /etc/nftables.d
 nft list table inet k3s-firewall > /etc/nftables.d/k3s-firewall.conf
+# Ensure /etc/nftables.conf actually loads our drop-in on boot. Ubuntu's
+# default /etc/nftables.conf does a `flush ruleset` and does NOT include
+# /etc/nftables.d/, so without this the k3s-firewall table is lost on every
+# reboot and the node falls back to an open input policy (SSH exposed).
+if ! grep -qF '/etc/nftables.d/*.conf' /etc/nftables.conf 2>/dev/null; then
+  echo 'include "/etc/nftables.d/*.conf"' >> /etc/nftables.conf
+fi
 # Ensure nftables service loads our rules on boot
 systemctl enable nftables 2>/dev/null || true
 
@@ -175,6 +182,30 @@ iptables-legacy -I FORWARD 1 -j K3S-FW-FORWARD
 
 mkdir -p /etc/iptables
 iptables-legacy-save > /etc/iptables/rules.v4
+
+# Persist across reboots. Neither MicroOS nor a bare iptables install restores
+# /etc/iptables/rules.v4 on boot by default (that needs the iptables-persistent/
+# netfilter-persistent package, which isn't present here), so without this the
+# K3S-FW chains are lost on reboot and the input policy falls back to open (SSH
+# exposed). Install a minimal oneshot unit that restores the saved rules early,
+# before the network comes up.
+cat > /etc/systemd/system/k3s-firewall.service <<'UNITEOF'
+[Unit]
+Description=Restore k3s bare-metal iptables firewall
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'iptables-legacy-restore < /etc/iptables/rules.v4'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable k3s-firewall.service 2>/dev/null || true
 
 fi
 
