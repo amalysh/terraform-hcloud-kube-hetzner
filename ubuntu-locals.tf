@@ -67,6 +67,15 @@ locals {
     AuthorizedKeysFile .ssh/authorized_keys
   path: /etc/ssh/sshd_config.d/kube-hetzner.conf
 
+# Keep needrestart from restarting iscsid in place after a library upgrade.
+# An in-place iscsid restart orphans the iscsid namespace PID that Longhorn's
+# instance-manager caches at startup, breaking volume attach/resize until the IM
+# pod is restarted (longhorn/longhorn#10544, unfixed upstream). Everything else
+# still auto-restarts, so unattended-upgrades stays fully effective.
+- content: ${base64encode("# Managed by terraform-hcloud-kube-hetzner (longhorn/longhorn#10544)\n$nrconf{override_rc}{qr(^iscsid)} = 0;\n")}
+  encoding: base64
+  path: /etc/needrestart/conf.d/zz-longhorn-iscsid.conf
+
 # Create the k3s registries file if needed
 %{if var.k3s_registries != ""}
 # Create k3s registries file

@@ -251,6 +251,16 @@ systemctl restart systemd-journald
 # Bash aliases
 echo 'alias k=kubectl' >> /etc/profile.d/k3s.sh
 
+# Keep needrestart from restarting iscsid in place after a library upgrade.
+# An in-place iscsid restart orphans the iscsid namespace PID that Longhorn's
+# instance-manager caches at startup, breaking volume attach/resize until the IM
+# pod is restarted (longhorn/longhorn#10544, unfixed upstream).
+mkdir -p /etc/needrestart/conf.d
+cat > /etc/needrestart/conf.d/zz-longhorn-iscsid.conf <<'NREOF'
+# Managed by terraform-hcloud-kube-hetzner (longhorn/longhorn#10544)
+$nrconf{override_rc}{qr(^iscsid)} = 0;
+NREOF
+
 # Reboot to apply hostname, kernel updates, and NetworkManager switch.
 # Schedule reboot in 1 minute — returns immediately so the script exits cleanly.
 # The reboot_wait resource handles waiting for the node to come back.
