@@ -1097,7 +1097,16 @@ kured_options = merge({
   "post-reboot-node-labels" : "kured=done",
   "period" : "5m",
   "reboot-sentinel" : "/sentinel/reboot-required"
-}, var.kured_options)
+  },
+  # With Longhorn, hold the reboot lock for 30m after a node is back so Longhorn can
+  # rebuild the replicas that node's reboot took away before the next node reboots.
+  # Same reason as the SUC agent plan's postCompleteDelay. The rebooted node is
+  # uncordoned before the delay starts. After a failed drain the delay also applies,
+  # and that node stays cordoned until it ends. A lock-ttl, if set, must be longer
+  # than drain-timeout + reboot time + this delay, or the lock expires during the
+  # delay and the next node reboots early.
+  var.enable_longhorn ? { "lock-release-delay" : "30m" } : {},
+var.kured_options)
 
 k3s_registries_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
