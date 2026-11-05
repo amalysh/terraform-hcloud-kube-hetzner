@@ -260,6 +260,20 @@ moved {
   to   = terraform_data.kube_system_secrets
 }
 
+# Rendered once so the kustomization trigger hashes exactly what is uploaded
+locals {
+  system_upgrade_plans_yaml = templatefile(
+    "${path.module}/templates/plans.yaml.tpl",
+    {
+      channel          = var.initial_k3s_channel
+      version          = var.install_k3s_version
+      disable_eviction = !var.system_upgrade_enable_eviction
+      drain            = var.system_upgrade_use_drain
+      upgrade_window   = var.system_upgrade_schedule_window
+      longhorn         = var.enable_longhorn
+  })
+}
+
 # This is where all the setup of Kubernetes components happen
 resource "terraform_data" "kustomization" {
   triggers_replace = {
@@ -302,6 +316,8 @@ resource "terraform_data" "kustomization" {
     ])
     ccm_use_helm                   = var.hetzner_ccm_use_helm
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
+    # Redeploy when the rendered SUC plans change, so a plan-only edit is not a no-op
+    system_upgrade_plans = sha256(local.system_upgrade_plans_yaml)
   }
 
   connection {
@@ -419,16 +435,7 @@ resource "terraform_data" "kustomization" {
 
   # Upload the system upgrade controller plans config
   provisioner "file" {
-    content = templatefile(
-      "${path.module}/templates/plans.yaml.tpl",
-      {
-        channel          = var.initial_k3s_channel
-        version          = var.install_k3s_version
-        disable_eviction = !var.system_upgrade_enable_eviction
-        drain            = var.system_upgrade_use_drain
-        upgrade_window   = var.system_upgrade_schedule_window
-        longhorn         = var.enable_longhorn
-    })
+    content     = local.system_upgrade_plans_yaml
     destination = "/var/post_install/plans.yaml"
   }
 
