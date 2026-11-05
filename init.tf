@@ -427,6 +427,7 @@ resource "terraform_data" "kustomization" {
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
         upgrade_window   = var.system_upgrade_schedule_window
+        longhorn         = var.enable_longhorn
     })
     destination = "/var/post_install/plans.yaml"
   }

@@ -10,6 +10,23 @@ metadata:
     k3s_upgrade: agent
 spec:
   concurrency: 1
+  # SUC's default ActiveDeadlineSeconds is 600s. Robot-node RWO drains take ~10-15min,
+  # so at 600s the drain is killed mid-way, leaving Longhorn volumes still attached when
+  # k3s restarts + the instance-manager pod is recreated with a new IP -> orphaned
+  # iSCSI sessions (REOPEN-stuck, error 32) that block re-attach, plus a stuck-cordoned
+  # node. A generous deadline lets the eviction-honoring drain finish so volumes detach
+  # (engine logout) cleanly before the IM is recreated -> no orphan.
+  jobActiveDeadlineSecs: 1800
+  %{~ if longhorn ~}
+  # Pause between agent nodes so Longhorn can rebuild the replicas that the
+  # previous node's drain and instance-manager restart took away. Without it SUC
+  # starts the next node as soon as the previous job completes, volumes lose
+  # several replicas at once, and the resulting rebuild storm can hit Longhorn
+  # rebuild races (longhorn/longhorn#13914). A fixed delay never blocks the roll,
+  # unlike a "wait for 0 degraded volumes" gate, which would stall on any volume
+  # that was already degraded before the roll began.
+  postCompleteDelay: 30m
+  %{~ endif ~}
   %{~ if version == "" ~}
   channel: https://update.k3s.io/v1-release/channels/${channel}
   %{~ else ~}
