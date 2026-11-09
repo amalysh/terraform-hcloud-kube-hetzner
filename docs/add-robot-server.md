@@ -14,7 +14,7 @@ Terraform handles all provisioning automatically: VLAN setup, k3s installation, 
 - **Robot server** with a fresh Ubuntu 24.04 or MicroOS installation and SSH root access
 - **Network CNI**:
   - Flannel: works out of the box
-  - Cilium: works, MTU is auto-configured to 1350
+  - Cilium: works, MTU is auto-configured to 1350. The module adjusts Cilium so that the host firewall sees public traffic, see [Firewall](#firewall)
   - Calico: untested
 
 ### Optional: Robot CCM Integration
@@ -91,7 +91,7 @@ Robot nodes get private IPs automatically from the vSwitch subnet (default `10.2
 2. **Reboots** the node if kernel updates were applied (Ubuntu `package_upgrade`)
 3. **VLAN setup**: Configures the vSwitch VLAN interface using NetworkManager (`nmcli`) with correct MTU (auto-calculated: 1400 for Flannel, 1350 for Cilium)
 4. **k3s agent**: Deploys config and installs k3s with proper kubelet args, labels (`instance.hetzner.cloud/provided-by=robot`), and provider ID (`baremetal://` or `hrobot://` prefix)
-5. **Firewall**: Applies nftables rules mirroring the hcloud firewall, allowing cluster CIDRs and pod/service traffic
+5. **Firewall**: Applies nftables rules that give the public interface the hcloud firewall rules and trust cluster CIDRs only on the private interfaces, see [Firewall](#firewall)
 6. **Registries**: Deploys k3s registry mirrors if configured
 7. **Longhorn**: Configures Longhorn storage if `enable_longhorn = true`
 8. **Cleanup on destroy**: Drains and deletes the k8s node, stops k3s, removes data
@@ -132,11 +132,24 @@ When Robot nodes are present, `HCLOUD_NETWORK_ROUTES_ENABLED` is set to `false` 
 
 ### Firewall
 
-Robot nodes get nftables rules that mirror the hcloud firewall configuration. Rules automatically include:
-- SSH access from allowed CIDRs
-- Cluster internal traffic (pod CIDR, service CIDR, private network)
-- ICMPv4 (ping)
-- NodePort ranges if configured
+Robot nodes have no hcloud firewall in front of them. Terraform installs a host firewall instead (nftables table `inet k3s-firewall`, or iptables-legacy where `nft` is missing) that gives the node the same rules:
+
+- The interface with the IPv4 default route is the **public interface**. New traffic arriving on it is accepted only by the mirrored `in` rules. By default these are SSH from `firewall_ssh_source`, the Kube API from `firewall_kube_api_source`, ICMP (unless `block_icmp_ping_in`), and HTTP/HTTPS when klipper (ServiceLB) is used instead of a load balancer.
+- The rules match the connection's source and port before DNAT. So when kube-proxy DNATs a NodePort, hostPort or externalIP on the public address, it stays closed unless an `in` rule opens its port, as on a cloud node. Only DNAT may forward traffic from the public interface.
+- A source address on the public interface is never trusted, so a spoofed cluster address or a pod address routed to the node's public MAC is dropped.
+- Cluster traffic arrives on the vSwitch VLAN and is accepted from the private network, the pod CIDR and the service CIDR.
+- With nftables the ruleset is replaced in one transaction, so a ruleset that fails to load keeps the previous one. The iptables-legacy fallback rebuilds its chains rule by rule. Both persist across reboots.
+
+With an hcloud load balancer, ingress goes through it: to robot nodes on their private IP (robot CCM), or to cloud nodes, which reach robot pods over the overlay. The firewall script refuses to run when the cluster network is routed via the public interface.
+
+**Cilium** handles NodePorts, hostPorts, externalIPs, LoadBalancer IPs and traffic to local pods in eBPF before netfilter, where a host firewall cannot see them. When robot or external nodes exist, the module therefore adds to the Cilium values:
+
+- `nodePort.addresses: [network_ipv4_cidr]`: Cilium serves NodePorts and hostPorts only on private addresses, on every node of the cluster. With `disable_kube_proxy = false` (the default), kube-proxy still serves NodePorts on every address through iptables, and the host firewall filters that path as described above.
+- `bpf.hostLegacyRouting: true`: traffic to local pods goes through the kernel stack, where the host firewall filters it. This costs some throughput compared with eBPF host routing, and it cannot be combined with `bandwidthManager.bbr`.
+
+One case remains with Cilium: an externalIP or LoadBalancer IP that names a bare-metal node's public address. With a backend on that node, the host firewall drops the traffic, even when an `in` rule opens the port. With a backend on another node, Cilium can forward it in eBPF past the host firewall. So do not put externalIPs on bare-metal public addresses; the kube-apiserver admission plugin `DenyServiceExternalIPs` rejects externalIPs cluster-wide. With klipper, keep ServiceLB off the bare-metal nodes by labelling the cloud nodes `svccontroller.k3s.cattle.io/enablelb=true`.
+
+Both settings can be overridden with `cilium_merge_values`. A full `cilium_values` replaces the module defaults, so set both there yourself.
 
 ---
 

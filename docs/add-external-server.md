@@ -13,7 +13,7 @@ Terraform handles all provisioning automatically: WireGuard key generation, tunn
 - **UDP port 51825** (default, configurable) must be open on the external server and control planes
 - **Network CNI**:
   - Flannel: works out of the box
-  - Cilium: works
+  - Cilium: works. The module adjusts Cilium so that the host firewall sees public traffic, see [Firewall](#firewall)
   - Calico: untested
 
 ---
@@ -176,7 +176,7 @@ CronJob detects NotReady (≤60s)
 3. **Reboots** the node if kernel updates were applied
 4. **WireGuard tunnels**: Deploys `wg-mesh` interface config on external nodes, control planes, and cloud agents/robot nodes (when `full_mesh=true`, required for Cilium)
 5. **k3s agent**: Deploys config and installs k3s with `flannel-iface=wg-mesh`, proper labels (`instance.hetzner.cloud/provided-by=external`), and `baremetal://` provider ID
-6. **Firewall**: Applies nftables rules allowing WireGuard port, cluster CIDRs, and pod/service traffic
+6. **Firewall**: Applies nftables rules that give the public interface the hcloud firewall rules plus the WireGuard port, and trust cluster CIDRs only on the other interfaces, see [Firewall](#firewall)
 7. **Registries**: Deploys k3s registry mirrors if configured
 8. **Longhorn**: Configures Longhorn storage if `enable_longhorn = true`
 9. **Gateway routing** (when autoscaler pools exist): Creates `hcloud_network_route` per external node, configures autoscaler cloud-init with gateway routes, deploys route-failover CronJob + DaemonSet for automatic failover
@@ -217,12 +217,24 @@ WireGuard keys are auto-generated per node. No manual key management needed.
 
 ### Firewall
 
-External nodes get nftables rules that mirror the hcloud firewall configuration plus WireGuard-specific rules:
-- WireGuard UDP port from all peers
-- Cluster internal traffic (pod CIDR, service CIDR, WG overlay CIDR)
-- SSH access from allowed CIDRs
-- ICMPv4 (ping)
-- NodePort ranges if configured
+External nodes have no hcloud firewall in front of them. Terraform installs a host firewall instead (nftables table `inet k3s-firewall`, or iptables-legacy where `nft` is missing) that gives the node the same rules:
+
+- The interface with the IPv4 default route is the **public interface**. New traffic arriving on it is accepted only by the WireGuard port and the mirrored `in` rules. The WireGuard port is open to any source, because WireGuard authenticates its peers. By default the `in` rules are SSH from `firewall_ssh_source`, the Kube API from `firewall_kube_api_source`, ICMP (unless `block_icmp_ping_in`), and HTTP/HTTPS when klipper (ServiceLB) is used instead of a load balancer.
+- The rules match the connection's source and port before DNAT. So when kube-proxy DNATs a NodePort, hostPort or externalIP on the public address, it stays closed unless an `in` rule opens its port, as on a cloud node. Only DNAT may forward traffic from the public interface.
+- A source address on the public interface is never trusted, so a spoofed cluster address or a pod address routed to the node is dropped.
+- Cluster traffic arrives through `wg-mesh` and is accepted from the private network, the WG overlay CIDR, the pod CIDR and the service CIDR.
+- With nftables the ruleset is replaced in one transaction, so a ruleset that fails to load keeps the previous one. The iptables-legacy fallback rebuilds its chains rule by rule. Both persist across reboots.
+
+The firewall script refuses to run when the cluster network is routed via the public interface.
+
+**Cilium** handles NodePorts, hostPorts, externalIPs, LoadBalancer IPs and traffic to local pods in eBPF before netfilter, where a host firewall cannot see them. When robot or external nodes exist, the module therefore adds to the Cilium values:
+
+- `nodePort.addresses: [network_ipv4_cidr, wireguard_network_cidr]`: Cilium serves NodePorts and hostPorts only on private addresses, on every node of the cluster. With `disable_kube_proxy = false` (the default), kube-proxy still serves NodePorts on every address through iptables, and the host firewall filters that path as described above.
+- `bpf.hostLegacyRouting: true`: traffic to local pods goes through the kernel stack, where the host firewall filters it. This costs some throughput compared with eBPF host routing, and it cannot be combined with `bandwidthManager.bbr`.
+
+One case remains with Cilium: an externalIP or LoadBalancer IP that names a bare-metal node's public address. With a backend on that node, the host firewall drops the traffic, even when an `in` rule opens the port. With a backend on another node, Cilium can forward it in eBPF past the host firewall. So do not put externalIPs on bare-metal public addresses; the kube-apiserver admission plugin `DenyServiceExternalIPs` rejects externalIPs cluster-wide. With klipper, keep ServiceLB off the bare-metal nodes by labelling the cloud nodes `svccontroller.k3s.cattle.io/enablelb=true`.
+
+Both settings can be overridden with `cilium_merge_values`. A full `cilium_values` replaces the module defaults, so set both there yourself.
 
 ### Routes
 
