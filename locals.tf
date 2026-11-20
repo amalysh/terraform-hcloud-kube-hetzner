@@ -926,6 +926,10 @@ controller:
 
 haproxy_values = module.values_merger_haproxy.values
 
+# Deliberately no `service.type`: the traefik chart's values schema rejects it from 42.3.1
+# on (`additionalProperties: false` on `service`), which fails the render outright, and no
+# template ever read it -- the Service type comes from `service.spec.type`, whose default
+# is already LoadBalancer. Set `service.spec.type` if a non-LoadBalancer Service is wanted.
 traefik_values_default = <<EOT
 image:
   tag: ${var.traefik_image_tag}
@@ -933,7 +937,6 @@ deployment:
   replicas: ${local.ingress_replica_count}
 service:
   enabled: true
-  type: LoadBalancer
 %{if !local.using_klipper_lb~}
   annotations:
     "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
