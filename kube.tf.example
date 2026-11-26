@@ -865,6 +865,30 @@ module "kube-hetzner" {
   #   "trust anchor --store /root/ca.crt",
   # ]
 
+  # A kube-apiserver AdmissionConfiguration, passed as admission-control-config-file, e.g. for
+  # cluster-wide Pod Security Admission defaults and exemptions. A namespace's own
+  # pod-security.kubernetes.io labels still override the defaults. Exempt the namespaces whose pods
+  # need host access (CNI, CSI, node agents). Setting or changing it restarts k3s on every control
+  # plane, so apply with -parallelism=1.
+  # https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-admission-controller/
+  #
+  # admission_control_config = <<-EOT
+  #   apiVersion: apiserver.config.k8s.io/v1
+  #   kind: AdmissionConfiguration
+  #   plugins:
+  #   - name: PodSecurity
+  #     configuration:
+  #       apiVersion: pod-security.admission.config.k8s.io/v1
+  #       kind: PodSecurityConfiguration
+  #       defaults:
+  #         enforce: "baseline"
+  #         enforce-version: "latest"
+  #         warn: "baseline"
+  #         warn-version: "latest"
+  #       exemptions:
+  #         namespaces: ["kube-system", "longhorn-system"]
+  # EOT
+
   # Structured authentication configuration. Multiple authentication providers support requires v1.30+ of
   # kubernetes.
   # https://kubernetes.io/docs/reference/access-authn-authz/authentication/#using-authentication-configuration

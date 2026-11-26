@@ -631,6 +631,7 @@ locals {
 
   kube_apiserver_arg = concat(
     var.authentication_config != "" ? ["authentication-config=/etc/rancher/k3s/authentication_config.yaml"] : [],
+    var.admission_control_config != "" ? ["admission-control-config-file=/etc/rancher/k3s/admission-control-config.yaml"] : [],
     var.k3s_audit_policy_config != "" ? [
       "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml",
       "audit-log-path=${var.k3s_audit_log_path}",
@@ -1229,6 +1230,41 @@ fi
 mkdir -p $(dirname ${var.k3s_audit_log_path})
 chmod 750 $(dirname ${var.k3s_audit_log_path})
 chown root:root $(dirname ${var.k3s_audit_log_path})
+EOF
+
+# Installs the admission configuration. The API server reads it only at start, and it must exist before
+# config.yaml names it, or the API server does not start: terraform_data.control_plane_config therefore
+# runs after this. k3s is restarted here only when config.yaml already names the file (a change of the
+# file's content); when the flag is new, the config.yaml change that adds it does the restart. A failed
+# restart restores the previous file and fails the provisioner, so the next apply retries.
+k3s_admission_control_config_update_script = <<EOF
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+ACC_FILE=/etc/rancher/k3s/admission-control-config.yaml
+if cmp -s /tmp/admission-control-config.yaml "$ACC_FILE"; then
+  echo "No update required to $ACC_FILE"
+else
+  mkdir -p /etc/rancher/k3s
+  if [ -f "$ACC_FILE" ]; then
+    echo "Backing up $ACC_FILE to /tmp/admission-control-config_$DATE.yaml"
+    cp "$ACC_FILE" "/tmp/admission-control-config_$DATE.yaml"
+  fi
+  install -m 0600 /tmp/admission-control-config.yaml "$ACC_FILE"
+  if grep -q "admission-control-config-file=$ACC_FILE" /etc/rancher/k3s/config.yaml 2>/dev/null && systemctl is-active --quiet k3s; then
+    echo "Updated $ACC_FILE detected, restart of k3s service required"
+    systemctl restart k3s || {
+      echo "Error: Failed to restart k3s. Last 20 log lines:"
+      journalctl -u k3s --no-pager -n 20 || true
+      if [ -f "/tmp/admission-control-config_$DATE.yaml" ]; then
+        echo "Restoring $ACC_FILE from backup"
+        cp "/tmp/admission-control-config_$DATE.yaml" "$ACC_FILE"
+        systemctl restart k3s || echo "Warning: restart after restore also failed"
+      fi
+      exit 1
+    }
+  else
+    echo "$ACC_FILE installed; k3s reads it at its next start"
+  fi
+fi
 EOF
 
 k3s_authentication_config_update_script = <<EOF
