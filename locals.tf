@@ -683,6 +683,22 @@ loadBalancer:
 bpf:
   # Enable eBPF-based Masquerading ("The eBPF-based implementation is the most efficient implementation")
   masquerade: true
+%{if local.is_cilium_cni && (local.has_robot_nodes || local.has_external_nodes)~}
+  # Bare-metal nodes are protected by a host firewall in netfilter (templates/baremetal_iptables.sh.tpl),
+  # not by the hcloud firewall. eBPF host routing hands a packet from a native device straight to a
+  # local pod, past netfilter; route it through the kernel stack so the host firewall sees it.
+  hostLegacyRouting: true
+
+# Cilium translates NodePorts and hostPorts in eBPF before netfilter, so the host firewall cannot
+# filter them on the public interface. Serve them only on private addresses; load balancers reach
+# the nodes over the private network.
+nodePort:
+  addresses:
+    - "${var.network_ipv4_cidr}"
+%{if local.has_external_nodes~}
+    - "${var.wireguard_network_cidr}"
+%{endif~}
+%{endif~}
 %{if var.enable_wireguard}
 encryption:
   enabled: true
