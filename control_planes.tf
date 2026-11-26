@@ -176,6 +176,43 @@ locals {
   ) }
 }
 
+resource "terraform_data" "admission_control_config" {
+  for_each = var.admission_control_config != "" ? local.control_plane_nodes : {}
+
+  triggers_replace = {
+    control_plane_id         = module.control_planes[each.key].id
+    admission_control_config = sha1(var.admission_control_config)
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
+  }
+
+  provisioner "file" {
+    content     = var.admission_control_config
+    destination = "/tmp/admission-control-config.yaml"
+  }
+
+  provisioner "remote-exec" {
+    inline = [local.k3s_admission_control_config_update_script]
+  }
+
+  depends_on = [
+    terraform_data.first_control_plane,
+    hcloud_network_subnet.control_plane
+  ]
+}
+
 resource "terraform_data" "control_plane_config" {
   for_each = local.control_plane_nodes
 
@@ -208,8 +245,10 @@ resource "terraform_data" "control_plane_config" {
     inline = [local.k3s_config_update_script]
   }
 
+  # The admission configuration file must be on the node before config.yaml names it.
   depends_on = [
     terraform_data.first_control_plane,
+    terraform_data.admission_control_config,
     hcloud_network_subnet.control_plane
   ]
 }

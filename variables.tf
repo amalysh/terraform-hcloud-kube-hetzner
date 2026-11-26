@@ -83,6 +83,17 @@ variable "authentication_config" {
   default     = ""
 }
 
+variable "admission_control_config" {
+  description = "Contents of a kube-apiserver AdmissionConfiguration (apiserver.config.k8s.io/v1), e.g. cluster-wide PodSecurity defaults and exemptions; configuration for other admission plugins goes into the same document. Written to /etc/rancher/k3s/admission-control-config.yaml on every control plane and passed as admission-control-config-file. Requires Kubernetes v1.25+ for PodSecurityConfiguration v1. Setting or changing it restarts k3s on every control plane. Leave empty to disable."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.admission_control_config == "" || try(yamldecode(var.admission_control_config).kind == "AdmissionConfiguration", false)
+    error_message = "admission_control_config must be empty or a YAML document of kind AdmissionConfiguration."
+  }
+}
+
 variable "hcloud_ssh_key_id" {
   description = "If passed, a key already registered within hetzner is used. Otherwise, a new one will be created by the module."
   type        = string
